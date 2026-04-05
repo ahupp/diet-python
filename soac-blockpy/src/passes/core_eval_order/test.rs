@@ -1,10 +1,12 @@
 use super::*;
 use crate::block_py::{
-    BinOp, BinOpKind, Block, BlockLabel, BlockPyFunction, BlockTerm, CallArgPositional,
-    CallableScopeInfo, CoreBlockPyExprWithAwaitAndYield, FunctionId, FunctionKind, FunctionName,
-    Meta, ModuleNameGen, Store, UnresolvedName, WithMeta, YieldFrom,
+    BinOp, BinOpKind, Block, BlockLabel, BlockPyFunction, BlockPyModule, BlockTerm,
+    CallArgPositional, CallableScopeInfo, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionKind, FunctionName, Meta, ModuleNameGen,
+    Store, UnresolvedName, WithMeta, YieldFrom,
 };
-use crate::passes::CoreBlockPyPassWithYield;
+use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 
 fn test_name(id: &str) -> UnresolvedName {
     let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {
@@ -13,13 +15,8 @@ fn test_name(id: &str) -> UnresolvedName {
     expr.into()
 }
 
-fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    matches!(expr, CoreBlockPyExprWithAwaitAndYield::Load(_))
-}
-
-fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
-    let name = test_name(id);
-    Load::new(name).into()
+fn is_name_like(expr: &CoreBlockPyExprWithYield) -> bool {
+    matches!(expr, CoreBlockPyExprWithYield::Load(_))
 }
 
 fn test_name_gen() -> crate::block_py::FunctionNameGen {
@@ -42,6 +39,41 @@ fn test_callable_def_with_yield_block(
     }
 }
 
+fn lower_awaits_in_test_block(
+    block: Block<CoreBlockPyExprWithAwaitAndYield>,
+) -> Block<CoreBlockPyExprWithYield> {
+    let lowered = lower_awaits_in_core_blockpy_module(BlockPyModule {
+        module_name_gen: ModuleNameGen::new(0),
+        global_names: Vec::new(),
+        callable_defs: vec![BlockPyFunction::<CoreBlockPyPassWithAwaitAndYield> {
+            function_id: FunctionId::new(0, 0),
+            name_gen: test_name_gen(),
+            names: FunctionName::new("f", "f", "f", "f"),
+            kind: FunctionKind::Coroutine,
+            params: Default::default(),
+            blocks: vec![block],
+            doc: None,
+            storage_layout: None,
+            scope: CallableScopeInfo::default(),
+        }],
+        counter_defs: Vec::new(),
+        module_constants: Vec::new(),
+    });
+    lowered.callable_defs[0].blocks[0].clone()
+}
+
+fn lower_yield_block(
+    block: Block<CoreBlockPyExprWithAwaitAndYield>,
+) -> Block<CoreBlockPyExprWithYield> {
+    make_eval_order_explicit_in_core_callable_def(test_callable_def_with_yield_block(
+        lower_awaits_in_test_block(block),
+    ))
+        .blocks
+        .into_iter()
+        .next()
+        .expect("test callable should have one block")
+}
+
 #[test]
 fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let block = Block {
@@ -54,19 +86,19 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
         exc_edge: None,
     };
 
-    let lowered = make_eval_order_explicit_in_core_block(block);
+    let lowered = lower_yield_block(block);
     assert!(lowered.body.is_empty());
-    let BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term else {
+    let BlockTerm::Return(CoreBlockPyExprWithYield::Call(call)) = &lowered.term else {
         panic!("expected call expr");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithYield::Call(_))
     ));
     assert!(matches!(
         &call.args[1],
-        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithYield::Call(_))
     ));
 }
 
@@ -82,9 +114,9 @@ fn eval_order_hoists_return_value_to_temp() {
         exc_edge: None,
     };
 
-    let lowered = make_eval_order_explicit_in_core_block(block);
+    let lowered = lower_yield_block(block);
     assert!(lowered.body.is_empty());
-    let BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
+    let BlockTerm::Return(CoreBlockPyExprWithYield::Call(call)) = lowered.term else {
         panic!("expected return of recursive call");
     };
     assert!(is_name_like(call.func.as_ref()));
@@ -108,23 +140,23 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
         exc_edge: None,
     };
 
-    let lowered = make_eval_order_explicit_in_core_block(block);
+    let lowered = lower_yield_block(block);
     assert_eq!(lowered.body.len(), 1);
-    let CoreBlockPyExprWithAwaitAndYield::Store(assign) = &lowered.body[0] else {
+    let CoreBlockPyExprWithYield::Store(assign) = &lowered.body[0] else {
         panic!("expected rewritten temp store");
     };
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) = assign.value.as_ref() else {
+    let CoreBlockPyExprWithYield::Call(call) = assign.value.as_ref() else {
         panic!("expected outer call");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithYield::Call(_))
     ));
 }
 
 #[test]
-fn eval_order_hoists_await_in_assignment_call_argument() {
+fn eval_order_hoists_lowered_await_in_assignment_call_argument() {
     let block = Block {
         label: BlockLabel::from_index(0),
         body: vec![Store::new(
@@ -132,7 +164,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
             Box::new(CoreBlockPyExprWithAwaitAndYield::BinOp(BinOp::new(
                 BinOpKind::InplaceAdd,
                 CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
-                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("await Once()")),
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("await it")),
             ))),
         )
         .into()],
@@ -143,57 +175,8 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         exc_edge: None,
     };
 
-    let lowered = make_eval_order_explicit_in_core_block(block);
+    let lowered = lower_yield_block(block);
     assert_eq!(lowered.body.len(), 3);
-    let CoreBlockPyExprWithAwaitAndYield::Store(temp_assign) = &lowered.body[0] else {
-        panic!("expected hoisted await temp store");
-    };
-    assert!(matches!(
-        *temp_assign.value,
-        CoreBlockPyExprWithAwaitAndYield::Await(_)
-    ));
-    let CoreBlockPyExprWithAwaitAndYield::Store(assign) = &lowered.body[1] else {
-        panic!("expected rewritten store");
-    };
-    let CoreBlockPyExprWithAwaitAndYield::BinOp(op) = &*assign.value else {
-        panic!("expected iadd operation");
-    };
-    assert_eq!(op.kind, BinOpKind::InplaceAdd);
-    assert!(matches!(
-        op.right.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Load(_)
-    ));
-    assert!(matches!(
-        lowered.body[2],
-        CoreBlockPyExprWithAwaitAndYield::Del(_)
-    ));
-}
-
-#[test]
-fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
-    let block = Block {
-        label: BlockLabel::from_index(0),
-        body: vec![Store::new(
-            test_name("total"),
-            Box::new(CoreBlockPyExprWithYield::BinOp(BinOp::new(
-                BinOpKind::InplaceAdd,
-                test_load_with_yield("total"),
-                CoreBlockPyExprWithYield::YieldFrom(
-                    YieldFrom::new(test_load_with_yield("it")).with_meta(Meta::default()),
-                ),
-            ))),
-        )
-        .into()],
-        term: BlockTerm::Return(test_load_with_yield("__dp_NONE")),
-        params: Vec::new(),
-        exc_edge: None,
-    };
-
-    let lowered_callable = make_eval_order_explicit_in_core_callable_def_without_await(
-        test_callable_def_with_yield_block(block),
-    );
-    let lowered = &lowered_callable.blocks[0];
-    assert_eq!(lowered.body.len(), 5);
     let CoreBlockPyExprWithYield::Store(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted yield-from temp store");
     };
@@ -201,23 +184,103 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         *temp_assign.value,
         CoreBlockPyExprWithYield::YieldFrom(_)
     ));
-    let CoreBlockPyExprWithYield::Store(binop_assign) = &lowered.body[1] else {
-        panic!("expected hoisted inplace-add temp store");
+    let CoreBlockPyExprWithYield::Store(assign) = &lowered.body[1] else {
+        panic!("expected rewritten store");
     };
-    let CoreBlockPyExprWithYield::BinOp(op) = &*binop_assign.value else {
+    let CoreBlockPyExprWithYield::BinOp(op) = &*assign.value else {
         panic!("expected inplace add operation");
     };
     assert!(matches!(
         op.right.as_ref(),
         CoreBlockPyExprWithYield::Load(_)
     ));
-    let CoreBlockPyExprWithYield::Store(assign) = &lowered.body[2] else {
-        panic!("expected final store into total");
-    };
     assert!(matches!(
         assign.value.as_ref(),
+        CoreBlockPyExprWithYield::BinOp(_)
+    ));
+    assert!(matches!(lowered.body[2], CoreBlockPyExprWithYield::Del(_)));
+}
+
+#[test]
+fn eval_order_hoists_yield_from_in_assignment_call_argument() {
+    let block = Block {
+        label: BlockLabel::from_index(0),
+        body: vec![Store::new(
+            test_name("total"),
+            Box::new(CoreBlockPyExprWithAwaitAndYield::BinOp(BinOp::new(
+                BinOpKind::InplaceAdd,
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
+                CoreBlockPyExprWithAwaitAndYield::YieldFrom(
+                    YieldFrom::new(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("it")))
+                        .with_meta(Meta::default()),
+                ),
+            ))),
+        )
+        .into()],
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+            "__dp_NONE"
+        ))),
+        params: Vec::new(),
+        exc_edge: None,
+    };
+
+    let lowered = lower_yield_block(block);
+    assert_eq!(lowered.body.len(), 3);
+    let CoreBlockPyExprWithYield::Store(temp_assign) = &lowered.body[0] else {
+        panic!("expected hoisted yield-from temp store");
+    };
+    assert!(matches!(
+        *temp_assign.value,
+        CoreBlockPyExprWithYield::YieldFrom(_)
+    ));
+    let CoreBlockPyExprWithYield::Store(assign) = &lowered.body[1] else {
+        panic!("expected rewritten store");
+    };
+    let CoreBlockPyExprWithYield::BinOp(op) = &*assign.value else {
+        panic!("expected inplace add operation");
+    };
+    assert!(matches!(
+        op.right.as_ref(),
         CoreBlockPyExprWithYield::Load(_)
     ));
-    assert!(matches!(lowered.body[3], CoreBlockPyExprWithYield::Del(_)));
-    assert!(matches!(lowered.body[4], CoreBlockPyExprWithYield::Del(_)));
+    assert!(matches!(
+        assign.value.as_ref(),
+        CoreBlockPyExprWithYield::BinOp(_)
+    ));
+    assert!(matches!(lowered.body[2], CoreBlockPyExprWithYield::Del(_)));
+}
+
+#[test]
+fn eval_order_leaves_non_yield_binop_stmt_shape_alone() {
+    let block = Block {
+        label: BlockLabel::from_index(0),
+        body: vec![Store::new(
+            test_name("total"),
+            Box::new(CoreBlockPyExprWithAwaitAndYield::BinOp(BinOp::new(
+                BinOpKind::InplaceAdd,
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("rhs")),
+            ))),
+        )
+        .into()],
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+            "__dp_NONE"
+        ))),
+        params: Vec::new(),
+        exc_edge: None,
+    };
+
+    let lowered = lower_yield_block(block);
+    assert_eq!(lowered.body.len(), 1);
+    let CoreBlockPyExprWithYield::Store(assign) = &lowered.body[0] else {
+        panic!("expected rewritten store");
+    };
+    let CoreBlockPyExprWithYield::BinOp(op) = &*assign.value else {
+        panic!("expected iadd operation");
+    };
+    assert_eq!(op.kind, BinOpKind::InplaceAdd);
+    assert!(matches!(
+        op.right.as_ref(),
+        CoreBlockPyExprWithYield::Load(_)
+    ));
 }

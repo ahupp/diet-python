@@ -4,7 +4,6 @@ use crate::block_py::{
     Block, BlockLabel, BlockPyFunction, BlockPyNameLike, BlockTerm, CallableScopeInfo,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
-use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
 fn test_name_gen() -> crate::block_py::FunctionNameGen {
     let module_name_gen = crate::block_py::ModuleNameGen::new(0);
@@ -13,7 +12,7 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
 
 #[test]
 fn lowers_await_to_yield_from_await_iter() {
-    let structured_block = make_eval_order_explicit_in_core_block(Block {
+    let structured_block = Block {
         label: BlockLabel::from_index(0),
         body: Vec::new(),
         term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
@@ -21,7 +20,7 @@ fn lowers_await_to_yield_from_await_iter() {
         ))),
         params: Vec::new(),
         exc_edge: None,
-    });
+    };
     let module = BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
@@ -48,16 +47,9 @@ fn lowers_await_to_yield_from_await_iter() {
 
     let lowered = lower_awaits_in_core_blockpy_module(module);
     let block = &lowered.callable_defs[0].blocks[0];
-    assert_eq!(block.body.len(), 1);
-    let CoreBlockPyExprWithYield::Store(await_assign) = &block.body[0] else {
-        panic!("expected lowered await store expr");
-    };
-    let BlockTerm::Return(CoreBlockPyExprWithYield::Load(return_load)) = &block.term else {
-        panic!("expected return of lowered await temp");
-    };
-    assert_eq!(return_load.name.id_str(), await_assign.name.id_str());
-    let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &*await_assign.value else {
-        panic!("expected lowered await yield from");
+    assert!(block.body.is_empty());
+    let BlockTerm::Return(CoreBlockPyExprWithYield::YieldFrom(yield_from)) = &block.term else {
+        panic!("expected return of lowered await yield from");
     };
     let CoreBlockPyExprWithYield::Call(call) = yield_from.value.as_ref() else {
         panic!("expected await_iter call op");

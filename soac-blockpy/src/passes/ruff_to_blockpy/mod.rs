@@ -9,7 +9,6 @@ use crate::block_py::{
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
-use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::passes::CoreBlockPyPassWithAwaitAndYield;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
@@ -171,10 +170,6 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label, &extra_roots, &mut blocks);
     let mut blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &blocks);
-    blocks = blocks
-        .into_iter()
-        .map(make_eval_order_explicit_in_core_block)
-        .collect();
     if matches!(blockpy_kind, FunctionKind::Function) {
         rewrite_current_exception_in_core_blocks_with_await_and_yield(&mut blocks[..]);
     }

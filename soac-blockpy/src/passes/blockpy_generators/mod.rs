@@ -1,4 +1,4 @@
-use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
+use super::core_eval_order::make_eval_order_explicit_in_core_callable_def;
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
@@ -1742,7 +1742,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
     module: BlockPyModule<CoreBlockPyPassWithYield>,
 ) -> BlockPyModule<CoreBlockPyPass> {
     let module =
-        module.map_callable_defs(make_eval_order_explicit_in_core_callable_def_without_await);
+        module.map_callable_defs(make_eval_order_explicit_in_core_callable_def);
     let module_name_gen = module.module_name_gen.clone();
     let mut callable_defs = Vec::new();
     for callable in module.callable_defs {

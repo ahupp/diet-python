@@ -741,9 +741,7 @@ async def run():
 #         StoreName("_dp_iter_0_0_0", aiter(ait))
 #         jump bb1
 #         block bb1:
-#             StoreName("_dp_eval_1", await anext_or_sentinel(_dp_iter_0_0_0))
-#             StoreName("_dp_tmp_0_0_1", _dp_eval_1)
-#             Del { name: "_dp_eval_1", quietly: false }
+#             StoreName("_dp_tmp_0_0_1", await anext_or_sentinel(_dp_iter_0_0_0))
 #             if_term BinOp(Is, _dp_tmp_0_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb0:
@@ -778,9 +776,7 @@ async def run():
 #     function_id: 0:0
 #     block bb4:
 #         StoreName("_dp_with_exit_1", asynccontextmanager_get_aexit(cm))
-#         StoreName("_dp_eval_4", await asynccontextmanager_aenter(cm))
-#         StoreName("x", _dp_eval_4)
-#         Del { name: "_dp_eval_4", quietly: false }
+#         StoreName("x", await asynccontextmanager_aenter(cm))
 #         StoreName("_dp_with_ok_2", TRUE)
 #         jump bb14
 #         block bb14:
@@ -823,9 +819,7 @@ async def run():
 #     block bb11(_dp_try_exc_0_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0_0
 #         StoreName("_dp_with_ok_2", FALSE)
-#         StoreName("_dp_eval_5", await asynccontextmanager_exit(_dp_with_exit_1, current_exception()))
-#         StoreName("_dp_with_reraise_3", _dp_eval_5)
-#         Del { name: "_dp_eval_5", quietly: false }
+#         StoreName("_dp_with_reraise_3", await asynccontextmanager_exit(_dp_with_exit_1, current_exception()))
 #         if_term UnaryOp(Not, BinOp(Is, _dp_with_reraise_3, NONE)):
 #             then:
 #                 jump bb12
