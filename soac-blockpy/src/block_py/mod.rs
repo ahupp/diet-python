@@ -257,12 +257,12 @@ where
 {
     type Mapped<T: Instr>;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<E, T>;
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<E, T, Error>;
@@ -271,7 +271,7 @@ where
     where
         Self: Mappable<E, Mapped<E> = Self>,
     {
-        self.map_typed_children(f)
+        self.map_children(f)
     }
 
     fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
@@ -354,7 +354,7 @@ impl ChildVisitable<Expr> for Expr {
 impl Mappable<Expr> for Expr {
     type Mapped<T: Instr> = T;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<Expr, T>,
@@ -362,7 +362,7 @@ impl Mappable<Expr> for Expr {
         map.map_instr(self)
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<Expr, T, Error>,
@@ -484,7 +484,7 @@ impl ChildVisitable<RuffExpr> for RuffExpr {
 impl Mappable<RuffExpr> for RuffExpr {
     type Mapped<T: Instr> = T;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<RuffExpr, T>,
@@ -492,7 +492,7 @@ impl Mappable<RuffExpr> for RuffExpr {
         map.map_instr(self)
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<RuffExpr, T, Error>,

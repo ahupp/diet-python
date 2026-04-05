@@ -54,18 +54,18 @@ impl MapInstr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormali
                 .with_meta(meta)
                 .into()
             }
-            LocatedCoreBlockPyExpr::BinOp(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::UnaryOp(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::Call(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::GetAttr(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::SetAttr(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::GetItem(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::SetItem(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::DelItem(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::Load(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::Store(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::Del(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::MakeCell(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::Call(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::Load(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::Store(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::Del(node) => node.map_children(self).into(),
+            LocatedCoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
             LocatedCoreBlockPyExpr::CellRefForName(node) => {
                 panic!(
                     "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
@@ -73,7 +73,7 @@ impl MapInstr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormali
                 );
             }
             LocatedCoreBlockPyExpr::CellRef(node) => node.into(),
-            LocatedCoreBlockPyExpr::MakeFunction(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::MakeFunction(node) => node.map_children(self).into(),
         }
     }
 

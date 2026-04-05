@@ -88,7 +88,7 @@ macro_rules! define_operation {
         impl<$expr_ty: Instr> Mappable<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
-            fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+            fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
                 M: MapInstr<$expr_ty, T>,
@@ -98,7 +98,7 @@ macro_rules! define_operation {
                 define_operation!(@build_mapped [$name::<T>] [] self, map, $($raw_fields)*)
             }
 
-            fn try_map_typed_children<T, Error, M>(
+            fn try_map_children<T, Error, M>(
                 self,
                 map: &mut M,
             ) -> Result<Self::Mapped<T>, Error>
@@ -192,7 +192,7 @@ macro_rules! define_operation {
         impl<E: Instr> Mappable<E> for $name {
             type Mapped<T: Instr> = $name;
 
-            fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+            fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
                 M: MapInstr<E, T>,
@@ -201,7 +201,7 @@ macro_rules! define_operation {
                 self
             }
 
-            fn try_map_typed_children<T, Error, M>(
+            fn try_map_children<T, Error, M>(
                 self,
                 map: &mut M,
             ) -> Result<Self::Mapped<T>, Error>

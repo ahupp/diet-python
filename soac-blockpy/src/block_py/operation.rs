@@ -165,7 +165,7 @@ where
 impl<E: Instr> Mappable<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<E, T>,
@@ -186,7 +186,7 @@ impl<E: Instr> Mappable<E> for Call<E> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<E, T, Error>,
@@ -299,7 +299,7 @@ where
 impl<I: Instr> Mappable<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<I, T>,
@@ -310,7 +310,7 @@ impl<I: Instr> Mappable<I> for Load<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<I, T, Error>,
@@ -389,7 +389,7 @@ where
 impl<I: Instr> Mappable<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<I, T>,
@@ -401,7 +401,7 @@ impl<I: Instr> Mappable<I> for Store<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<I, T, Error>,
@@ -473,7 +473,7 @@ where
 impl<I: Instr> Mappable<I> for Del<I> {
     type Mapped<T: Instr> = Del<T>;
 
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
         M: MapInstr<I, T>,
@@ -485,7 +485,7 @@ impl<I: Instr> Mappable<I> for Del<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapInstr<I, T, Error>,

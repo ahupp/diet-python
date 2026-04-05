@@ -2067,7 +2067,7 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
             }
             CoreBlockPyExpr::Call(call) => {
                 let meta = call.meta();
-                let call = call.map_typed_children(self);
+                let call = call.map_children(self);
                 if raw_load_name(call.func.as_ref())
                     .as_ref()
                     .is_some_and(|name| name == "class_lookup_cell")
@@ -2085,16 +2085,16 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
                 }
                 call.with_meta(meta).into()
             }
-            CoreBlockPyExpr::BinOp(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::UnaryOp(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::GetAttr(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::SetAttr(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::GetItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::SetItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::DelItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExpr::MakeCell(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
             CoreBlockPyExpr::CellRef(node) => node.into(),
-            CoreBlockPyExpr::MakeFunction(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::MakeFunction(node) => node.map_children(self).into(),
         }
     }
 

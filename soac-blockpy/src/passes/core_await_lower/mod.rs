@@ -23,7 +23,7 @@ impl MapInstr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Co
                     .with_meta(meta),
                 )
             },
-            rest => rest.map_typed_children(self).into(),
+            rest => rest.map_children(self).into(),
         })
     }
 

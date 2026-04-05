@@ -94,13 +94,13 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.map_walk(&mut *f).into(),
             }
         });
-        let map_typed_children_arms = variants.iter().map(|variant| {
+        let map_children_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
                 Self::#variant_name(node) => map.map_instr(Self::#variant_name(node)),
             }
         });
-        let try_map_typed_children_arms = variants.iter().map(|variant| {
+        let try_map_children_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
                 Self::#variant_name(node) => map.try_map_instr(Self::#variant_name(node)),
@@ -183,23 +183,23 @@ impl EnumBroadcastTarget {
                 impl #impl_generics Mappable<Self> for #enum_name #ty_generics #where_clause {
                     type Mapped<T: Instr> = T;
 
-                    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+                    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
                     where
                         T: Instr,
                         M: MapInstr<Self, T>,
                     {
                         match self {
-                            #( #map_typed_children_arms )*
+                            #( #map_children_arms )*
                         }
                     }
 
-                    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+                    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
                     where
                         T: Instr,
                         M: TryMapInstr<Self, T, Error>,
                     {
                         match self {
-                            #( #try_map_typed_children_arms )*
+                            #( #try_map_children_arms )*
                         }
                     }
 
