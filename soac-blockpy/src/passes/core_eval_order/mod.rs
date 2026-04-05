@@ -281,68 +281,43 @@ fn make_eval_order_explicit_in_core_term_without_await(
     map.map_term(term)
 }
 
-pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
-    block: Block<CoreBlockPyExprWithYield>,
-) -> Block<CoreBlockPyExprWithYield> {
-    let Block {
-        label,
-        body: input_body,
-        term: input_term,
-        params,
-        exc_edge,
-    } = block;
-    let mut body = Vec::new();
-    for expr in input_body {
-        let mut setup = Vec::new();
-        let mut cleanup = Vec::new();
-        let expr = if expr_contains_yield(&expr) {
-            make_eval_order_explicit_in_core_expr_without_await(expr, &mut setup, &mut cleanup)
-        } else {
-            expr
-        };
-        body.extend(setup);
-        body.push(expr);
-        append_stmt_cleanup(&mut body, cleanup);
-    }
-    let term = make_eval_order_explicit_in_core_term_without_await(input_term, &mut body);
-    Block {
-        label,
-        body,
-        term,
-        params,
-        exc_edge,
-    }
-}
-
 pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
     callable_def: BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> BlockPyFunction<CoreBlockPyPassWithYield> {
-    let BlockPyFunction {
-        function_id,
-        name_gen,
-        names,
-        kind,
-        params,
-        blocks,
-        doc,
-        storage_layout,
-        scope,
-    } = callable_def;
-    let blocks = blocks
-        .into_iter()
-        .map(make_eval_order_explicit_in_core_block_without_await)
-        .collect();
-    BlockPyFunction {
-        function_id,
-        name_gen,
-        names,
-        kind,
-        params,
-        blocks,
-        doc,
-        storage_layout,
-        scope,
-    }
+    callable_def.map_blocks(|block| {
+        let Block {
+            label,
+            body: input_body,
+            term: input_term,
+            params,
+            exc_edge,
+        } = block;
+        let mut body = Vec::new();
+        for expr in input_body {
+            let mut setup = Vec::new();
+            let mut cleanup = Vec::new();
+            let expr = if expr_contains_yield(&expr) {
+                make_eval_order_explicit_in_core_expr_without_await(
+                    expr,
+                    &mut setup,
+                    &mut cleanup,
+                )
+            } else {
+                expr
+            };
+            body.extend(setup);
+            body.push(expr);
+            append_stmt_cleanup(&mut body, cleanup);
+        }
+        let term = make_eval_order_explicit_in_core_term_without_await(input_term, &mut body);
+        Block {
+            label,
+            body,
+            term,
+            params,
+            exc_edge,
+        }
+    })
 }
 
 #[cfg(test)]

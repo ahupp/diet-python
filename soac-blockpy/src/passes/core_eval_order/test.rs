@@ -1,8 +1,10 @@
 use super::*;
 use crate::block_py::{
-    BinOp, BinOpKind, Block, BlockLabel, BlockTerm, CallArgPositional,
-    CoreBlockPyExprWithAwaitAndYield, Meta, Store, UnresolvedName, WithMeta, YieldFrom,
+    BinOp, BinOpKind, Block, BlockLabel, BlockPyFunction, BlockTerm, CallArgPositional,
+    CallableScopeInfo, CoreBlockPyExprWithAwaitAndYield, FunctionId, FunctionKind, FunctionName,
+    Meta, ModuleNameGen, Store, UnresolvedName, WithMeta, YieldFrom,
 };
+use crate::passes::CoreBlockPyPassWithYield;
 
 fn test_name(id: &str) -> UnresolvedName {
     let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {
@@ -18,6 +20,26 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
     let name = test_name(id);
     Load::new(name).into()
+}
+
+fn test_name_gen() -> crate::block_py::FunctionNameGen {
+    ModuleNameGen::new(0).next_function_name_gen()
+}
+
+fn test_callable_def_with_yield_block(
+    block: Block<CoreBlockPyExprWithYield>,
+) -> BlockPyFunction<CoreBlockPyPassWithYield> {
+    BlockPyFunction {
+        function_id: FunctionId::new(0, 0),
+        name_gen: test_name_gen(),
+        names: FunctionName::new("f", "f", "f", "f"),
+        kind: FunctionKind::Generator,
+        params: Default::default(),
+        blocks: vec![block],
+        doc: None,
+        storage_layout: None,
+        scope: CallableScopeInfo::default(),
+    }
 }
 
 #[test]
@@ -167,7 +189,10 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         exc_edge: None,
     };
 
-    let lowered = make_eval_order_explicit_in_core_block_without_await(block);
+    let lowered_callable = make_eval_order_explicit_in_core_callable_def_without_await(
+        test_callable_def_with_yield_block(block),
+    );
+    let lowered = &lowered_callable.blocks[0];
     assert_eq!(lowered.body.len(), 5);
     let CoreBlockPyExprWithYield::Store(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted yield-from temp store");
