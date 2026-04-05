@@ -1,4 +1,4 @@
-use soac_blockpy::block_py::{BlockArg, BlockPyFunction, BlockPyModule, CodegenBlock};
+use soac_blockpy::block_py::{BlockArg, BlockPyFunction, BlockPyModule, CodegenBlock, FunctionId};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -77,11 +77,11 @@ pub fn lookup_blockpy_module(module_name: &str) -> Option<BlockPyModule<CodegenB
 
 pub fn lookup_blockpy_function(
     module_name: &str,
-    function_id: usize,
+    function_id: FunctionId,
 ) -> Option<BlockPyFunction<CodegenBlockPyPass>> {
     let module = lookup_blockpy_module(module_name)?;
     module
         .callable_defs
         .into_iter()
-        .find(|function| function.function_id.0 == function_id)
+        .find(|function| function.function_id == function_id)
 }

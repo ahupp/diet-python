@@ -58,7 +58,7 @@ fn build_closure_backed_generator_factory_block(
 ) -> Block<StructuredInstr<Expr>, Expr> {
     let resume_entry = py_expr!(
         "__dp_make_function({function_id:literal}, \"function\", __dp_tuple(), __dp_tuple(), None)",
-        function_id = resume_function_id.0,
+        function_id = resume_function_id.packed(),
     );
 
     let generator_expr = if is_async_generator {
@@ -465,7 +465,7 @@ fn builds_closure_backed_generator_factory_block() {
     let block = build_closure_backed_generator_factory_block(
         "_dp_bb_demo_factory",
         &FunctionName::new("gen", "gen", "gen", "gen"),
-        FunctionId(0),
+        FunctionId::new(0, 0),
         &[
             "_dp_cell_captured".to_string(),
             "_dp_cell_x".to_string(),

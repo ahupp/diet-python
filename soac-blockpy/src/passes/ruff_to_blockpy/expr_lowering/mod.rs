@@ -295,7 +295,11 @@ fn make_function_id_from_literal(expr: &Expr) -> Option<FunctionId> {
     let ast::Number::Int(value) = &number.value else {
         return None;
     };
-    value.to_string().parse().ok().map(FunctionId)
+    value
+        .to_string()
+        .parse()
+        .ok()
+        .map(FunctionId::from_packed)
 }
 
 fn string_literal_value(expr: &Expr) -> Option<String> {

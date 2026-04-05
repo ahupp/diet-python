@@ -1,6 +1,7 @@
 use soac_inspector::{
     jit_debug_plan, register_named_plans_from_source, render_registered_jit_clif,
 };
+use soac_blockpy::block_py::FunctionId;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,7 +9,7 @@ const VALIDATE_DELIMITER: &str = "# diet-python: validate";
 
 struct Args {
     source: PathBuf,
-    function_id: usize,
+    function_id: FunctionId,
     module_name: Option<String>,
     cfg_dot_out: Option<PathBuf>,
     debug_plan: bool,
@@ -51,7 +52,8 @@ fn parse_args() -> Result<Args, String> {
         return Err("expected <source> and <function_id>".to_string());
     }
     let function_id = positionals[1]
-        .parse::<usize>()
+        .parse::<u64>()
+        .map(FunctionId::from_packed)
         .map_err(|err| format!("invalid function_id '{}': {err}", positionals[1]))?;
     Ok(Args {
         source: PathBuf::from(&positionals[0]),

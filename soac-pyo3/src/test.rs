@@ -72,7 +72,7 @@ def outer(scale):
         .find(|function| function.names.bind_name == "inner")
         .expect("missing lowered inner function");
     let registered_function =
-        jit::lookup_blockpy_function(module_name, inner_function.function_id.0)
+        jit::lookup_blockpy_function(module_name, inner_function.function_id)
             .expect("registered plan should exist");
     let storage_layout = inner_function
         .storage_layout()
@@ -211,7 +211,7 @@ def exercise():
         .iter()
         .find(|function| function.names.bind_name == "gen_resume")
         .expect("missing lowered generator resume function");
-    let registered_function = jit::lookup_blockpy_function(module_name, gen_function.function_id.0)
+    let registered_function = jit::lookup_blockpy_function(module_name, gen_function.function_id)
         .expect("registered plan should exist");
     let plan_runtime_param_names = registered_function
         .blocks

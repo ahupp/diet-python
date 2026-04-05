@@ -33,7 +33,7 @@ impl CompileSession {
     }
 
     pub fn module_name_gen(self) -> ModuleNameGen {
-        ModuleNameGen::new(0)
+        ModuleNameGen::new(self.id.as_u32())
     }
 }
 

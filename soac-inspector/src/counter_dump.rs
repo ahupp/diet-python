@@ -1,9 +1,11 @@
 use memmap2::Mmap;
 use soac_eval::counter_dump::{
-    COUNTER_DUMP_MAGIC, COUNTER_DUMP_NONE_U32, COUNTER_DUMP_VERSION, CounterDumpRecordHeader,
+    COUNTER_DUMP_MAGIC, COUNTER_DUMP_NONE_U32, COUNTER_DUMP_NONE_U64, COUNTER_DUMP_VERSION,
+    CounterDumpRecordHeader,
 };
 #[cfg(test)]
 use soac_eval::counter_dump::{CounterDumpRecord, CounterDumpRow};
+use soac_blockpy::block_py::FunctionId;
 use std::fs::File;
 use std::mem::{align_of, size_of};
 use std::path::Path;
@@ -25,7 +27,7 @@ pub struct CounterDumpRecordView<'a> {
     scope: &'a [u32],
     kind: &'a [u32],
     site_kind: &'a [u32],
-    function_id: &'a [u32],
+    function_id: &'a [u64],
     function_qualname: &'a [u32],
     block_label: &'a [u32],
     value: &'a [u64],
@@ -36,7 +38,7 @@ pub struct CounterDumpRowView<'a> {
     pub scope: &'a str,
     pub kind: &'a str,
     pub site_kind: &'a str,
-    pub function_id: Option<u32>,
+    pub function_id: Option<FunctionId>,
     pub function_qualname: Option<&'a str>,
     pub block_label: Option<&'a str>,
     pub value: u64,
@@ -86,8 +88,8 @@ impl<'a> CounterDumpRecordView<'a> {
             scope: self.resolve_string_id(self.scope[index])?,
             kind: self.resolve_string_id(self.kind[index])?,
             site_kind: self.resolve_string_id(self.site_kind[index])?,
-            function_id: (self.function_id[index] != COUNTER_DUMP_NONE_U32)
-                .then_some(self.function_id[index]),
+            function_id: (self.function_id[index] != COUNTER_DUMP_NONE_U64)
+                .then_some(FunctionId::from_packed(self.function_id[index])),
             function_qualname: self.resolve_optional_string_id(self.function_qualname[index])?,
             block_label: self.resolve_optional_string_id(self.block_label[index])?,
             value: self.value[index],
@@ -245,7 +247,7 @@ pub fn parse_counter_dump_records(bytes: &[u8]) -> Result<Vec<CounterDumpRecordV
         let kind = unsafe { cast_slice::<u32>(record_bytes, kind_offset, row_count) }?;
         let site_kind = unsafe { cast_slice::<u32>(record_bytes, site_kind_offset, row_count) }?;
         let function_id =
-            unsafe { cast_slice::<u32>(record_bytes, function_id_offset, row_count) }?;
+            unsafe { cast_slice::<u64>(record_bytes, function_id_offset, row_count) }?;
         let function_qualname =
             unsafe { cast_slice::<u32>(record_bytes, function_qualname_offset, row_count) }?;
         let block_label =
@@ -355,7 +357,7 @@ mod test {
                 scope: "this".to_string(),
                 kind: "block_entry".to_string(),
                 site_kind: "block_entry".to_string(),
-                function_id: Some(7),
+                function_id: Some(FunctionId::new(1, 7)),
                 function_qualname: Some("f".to_string()),
                 block_label: Some("bb0".to_string()),
                 value: 5,
@@ -401,7 +403,7 @@ mod test {
         assert_eq!(first_row.scope, "this");
         assert_eq!(first_row.kind, "block_entry");
         assert_eq!(first_row.site_kind, "block_entry");
-        assert_eq!(first_row.function_id, Some(7));
+        assert_eq!(first_row.function_id, Some(FunctionId::new(1, 7)));
         assert_eq!(first_row.function_qualname, Some("f"));
         assert_eq!(first_row.block_label, Some("bb0"));
         assert_eq!(first_row.value, 5);

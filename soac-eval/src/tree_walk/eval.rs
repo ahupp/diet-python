@@ -3,7 +3,7 @@ use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use soac_blockpy::block_py::ParamKind;
+use soac_blockpy::block_py::{FunctionId, ParamKind};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::any::Any;
 use std::cell::RefCell;
@@ -268,12 +268,12 @@ pub unsafe fn build_module_runtime_context_for_module(
 
 unsafe fn make_clif_function_data(
     _callable: *mut ffi::PyObject,
-    function_id: usize,
+    function_id: FunctionId,
     module_runtime: jit::ModuleRuntimeContext,
 ) -> Result<*mut c_void, ()> {
     let Some(blockpy_function) = module_runtime
         .shared_module_state_owner
-        .lookup_function(soac_blockpy::block_py::FunctionId(function_id))
+        .lookup_function(function_id)
         .cloned()
     else {
         let module_name = module_runtime
@@ -798,7 +798,7 @@ unsafe extern "C" fn lazy_clif_vectorcall(
 
 pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
-    function_id: usize,
+    function_id: FunctionId,
     module_runtime: jit::ModuleRuntimeContext,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {

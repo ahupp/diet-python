@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use soac_blockpy::block_py::BlockPyFunction;
+use soac_blockpy::block_py::{BlockPyFunction, FunctionId};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use soac_eval::jit;
 use soac_eval::module_constants::ModuleCodegenConstants;
@@ -38,7 +38,7 @@ struct InspectPipelineRequest {
 struct JitClifRequest {
     source: String,
     #[serde(rename = "functionId")]
-    function_id: usize,
+    function_id: String,
     qualname: Option<String>,
     #[serde(rename = "entryLabel")]
     entry_label: Option<String>,
@@ -206,7 +206,7 @@ fn lower_source_recorded(source: &str) -> Result<soac_blockpy::LoweringResult, A
 
 fn inspector_function_payload(function: &BlockPyFunction<CodegenBlockPyPass>) -> Value {
     json!({
-        "functionId": function.function_id.0,
+        "functionId": function.function_id.packed().to_string(),
         "qualname": function.names.qualname,
         "displayName": function.names.display_name,
         "bindName": function.names.bind_name,
@@ -263,7 +263,7 @@ fn inspect_pipeline_payload(source: &str) -> Result<Value, ApiError> {
     Ok(render_inspector_payload(source, &output))
 }
 
-pub fn jit_debug_plan(module_name: &str, function_id: usize) -> Result<String, String> {
+pub fn jit_debug_plan(module_name: &str, function_id: FunctionId) -> Result<String, String> {
     let Some(function) = jit::lookup_blockpy_function(module_name, function_id) else {
         return Err(format!(
             "no specialized JIT plan for {module_name}.fn#{function_id}"
@@ -288,14 +288,14 @@ pub fn jit_debug_plan(module_name: &str, function_id: usize) -> Result<String, S
 pub fn render_registered_jit_clif(
     repo_root: &Path,
     module_name: &str,
-    function_id: usize,
+    function_id: FunctionId,
 ) -> Result<JitClifResponse, String> {
     let module = jit::lookup_blockpy_module(module_name)
         .ok_or_else(|| format!("no specialized JIT plan for {module_name}"))?;
     let function = module
         .callable_defs
         .iter()
-        .find(|function| function.function_id.0 == function_id)
+        .find(|function| function.function_id == function_id)
         .cloned()
         .ok_or_else(|| format!("no specialized JIT plan for {module_name}.fn#{function_id}"))?;
     let module_constants = ModuleCodegenConstants::collect_from_module(&module);
@@ -322,7 +322,9 @@ pub fn render_registered_jit_clif(
         vcode_disasm: rendered.vcode_disasm,
         resolved_entry: format!(
             "{}::__dp_fn_{}::{}",
-            function.names.qualname, function_id, entry_label
+            function.names.qualname,
+            function_id.packed(),
+            entry_label
         ),
     })
 }
@@ -330,7 +332,7 @@ pub fn render_registered_jit_clif(
 fn render_jit_clif(
     repo_root: &Path,
     source: &str,
-    function_id: usize,
+    function_id: FunctionId,
     qualname: Option<&str>,
     entry_label: &str,
 ) -> Result<JitClifResponse, ApiError> {
@@ -340,7 +342,7 @@ fn render_jit_clif(
     rendered.resolved_entry = format!(
         "{}::__dp_fn_{}::{}",
         qualname.unwrap_or("<unknown>"),
-        function_id,
+        function_id.packed(),
         entry_label
     );
     Ok(rendered)
@@ -356,6 +358,7 @@ async fn handle_jit_clif(
     State(state): State<AppState>,
     Json(request): Json<JitClifRequest>,
 ) -> Result<Json<JitClifResponse>, ApiError> {
+    let function_id = parse_packed_function_id(request.function_id.as_str())?;
     let entry_label = request
         .entry_label
         .as_deref()
@@ -363,10 +366,16 @@ async fn handle_jit_clif(
     Ok(Json(render_jit_clif(
         &state.repo_root,
         request.source.as_str(),
-        request.function_id,
+        function_id,
         request.qualname.as_deref(),
         entry_label,
     )?))
+}
+
+fn parse_packed_function_id(raw: &str) -> Result<FunctionId, ApiError> {
+    raw.parse::<u64>()
+        .map(FunctionId::from_packed)
+        .map_err(|err| ApiError::bad_request(format!("invalid functionId '{raw}': {err}")))
 }
 
 #[cfg(test)]
@@ -419,7 +428,7 @@ mod test {
         assert_eq!(payload["steps"][0]["key"], "input_source");
         assert_eq!(payload["functions"][0]["qualname"], "classify");
         assert_eq!(payload["functions"][0]["displayName"], "classify");
-        assert!(payload["functions"][0]["functionId"].as_u64().is_some());
+        assert!(payload["functions"][0]["functionId"].as_str().is_some());
         assert!(
             payload["functions"][0]["entryLabel"]
                 .as_str()

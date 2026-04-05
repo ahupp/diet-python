@@ -199,7 +199,7 @@ impl<R> BlockPyFormatter<R> {
             function.names.qualname
         ));
         self.with_indent(|this| {
-            this.line(format!("function_id: {}", function.function_id.0));
+            this.line(format!("function_id: {}", function.function_id));
             if function.names.display_name != function.names.bind_name {
                 this.line(format!("display_name: {}", function.names.display_name));
             }

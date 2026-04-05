@@ -676,7 +676,7 @@ function normalizeFunctions(payload) {
   }
   return payload.filter((fn) =>
     fn &&
-    Number.isInteger(fn.functionId) &&
+    typeof fn.functionId === "string" &&
     typeof fn.qualname === "string" &&
     typeof fn.displayName === "string" &&
     typeof fn.bindName === "string" &&

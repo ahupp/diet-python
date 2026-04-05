@@ -1,14 +1,42 @@
 use ruff_python_ast as ast;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionId(pub usize);
+pub struct FunctionId(u64);
+
+impl FunctionId {
+    pub const fn new(module_id: u32, function_id: u32) -> Self {
+        Self(((module_id as u64) << 32) | function_id as u64)
+    }
+
+    pub const fn from_packed(packed: u64) -> Self {
+        Self(packed)
+    }
+
+    pub const fn packed(self) -> u64 {
+        self.0
+    }
+
+    pub const fn module_id(self) -> u32 {
+        (self.0 >> 32) as u32
+    }
+
+    pub const fn function_id(self) -> u32 {
+        self.0 as u32
+    }
+}
 
 impl fmt::Debug for FunctionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        write!(f, "{}:{}", self.module_id(), self.function_id())
+    }
+}
+
+impl fmt::Display for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.module_id(), self.function_id())
     }
 }
 
@@ -76,26 +104,37 @@ impl FunctionNameGen {
     pub fn next_tmp_name(&self, prefix: &str) -> ast::name::Name {
         let current = self.state.next_tmp_id.fetch_add(1, Ordering::Relaxed);
         ast::name::Name::new(format!(
-            "_dp_{prefix}_{}_{}",
-            self.state.function_id.0, current
+            "_dp_{prefix}_{}_{}_{}",
+            self.state.function_id.module_id(),
+            self.state.function_id.function_id(),
+            current
         ))
     }
 }
 
 #[derive(Debug)]
 pub struct ModuleNameGen {
-    state: Arc<AtomicUsize>,
+    module_id: u32,
+    state: Arc<AtomicU32>,
 }
 
 impl ModuleNameGen {
-    pub fn new(next_function_id: usize) -> Self {
+    pub fn new(module_id: u32) -> Self {
         Self {
-            state: Arc::new(AtomicUsize::new(next_function_id)),
+            module_id,
+            state: Arc::new(AtomicU32::new(0)),
         }
     }
 
+    pub fn module_id(&self) -> u32 {
+        self.module_id
+    }
+
     pub fn next_function_name_gen(&self) -> FunctionNameGen {
-        let function_id = FunctionId(self.state.fetch_add(1, Ordering::Relaxed));
+        let function_id = FunctionId::new(
+            self.module_id,
+            self.state.fetch_add(1, Ordering::Relaxed),
+        );
         FunctionNameGen::new(function_id)
     }
 }
@@ -103,6 +142,7 @@ impl ModuleNameGen {
 impl Clone for ModuleNameGen {
     fn clone(&self) -> Self {
         Self {
+            module_id: self.module_id,
             state: Arc::clone(&self.state),
         }
     }

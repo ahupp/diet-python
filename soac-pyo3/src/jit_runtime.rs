@@ -81,7 +81,7 @@ fn register_clif_vectorcall_raw(
     module_runtime: soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), function_id.0, module_runtime)
+        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), function_id, module_runtime)
             .map_err(|_| {
                 if ffi::PyErr_Occurred().is_null() {
                     PyRuntimeError::new_err("failed to register CLIF vectorcall")
@@ -123,7 +123,7 @@ fn maybe_eager_compile_clif_entry(
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             info!(
                 "soac_jit_eager_compile module={} function_id={} elapsed_ms={elapsed_ms:.3}",
-                module_runtime.shared_module_state_owner.module_name, function_id.0
+                module_runtime.shared_module_state_owner.module_name, function_id
             );
             Ok(())
         }
@@ -131,7 +131,7 @@ fn maybe_eager_compile_clif_entry(
         Err(err) => Err(PyRuntimeError::new_err(format!(
             "failed to eagerly compile CLIF entry for {module_name} function_id={function_id}: {err}",
             module_name = module_runtime.shared_module_state_owner.module_name,
-            function_id = function_id.0
+            function_id = function_id
         ))),
     }
 }
@@ -158,7 +158,7 @@ fn register_lazy_clif_vectorcall(
         Err(err) => Err(PyRuntimeError::new_err(format!(
             "failed to register lazy CLIF vectorcall for {module_name} function_id={function_id}: {err}",
             module_name = module_runtime.shared_module_state_owner.module_name,
-            function_id = function_id.0
+            function_id = function_id
         ))),
     }
 }
@@ -291,7 +291,7 @@ fn lookup_bb_function(
         PyRuntimeError::new_err(format!(
             "JIT basic-block {operation} failed to resolve static function metadata for {}.fn#{}",
             shared_state.module_name,
-            function_id.0
+            function_id
         ))
     })
 }
@@ -609,7 +609,7 @@ fn instantiate_closure_backed_entry<'py>(
 #[pyfunction]
 fn make_bb_function(
     py: Python<'_>,
-    function_id: usize,
+    function_id: u64,
     captures: Py<PyAny>,
     param_defaults: Py<PyAny>,
     annotate_fn: Py<PyAny>,
@@ -622,7 +622,7 @@ fn make_bb_function(
             let module_name = module_name_from_runtime(module_runtime, "function instantiation")?;
             let function = lookup_bb_function(
                 &module_runtime.shared_module_state_owner,
-                FunctionId(function_id),
+                FunctionId::from_packed(function_id),
                 "function instantiation",
             )?;
             instantiate_bb_function(

@@ -103,10 +103,7 @@ impl SharedModuleState {
                             scope: counter_scope_name(counter.scope).to_string(),
                             kind: counter.kind.clone(),
                             site_kind: "block_entry".to_string(),
-                            function_id: Some(
-                                u32::try_from(function_id.0)
-                                    .expect("function ids should fit in u32"),
-                            ),
+                            function_id: Some(*function_id),
                             function_qualname: function
                                 .map(|function| function.names.qualname.clone())
                                 .or_else(|| Some("<missing-function>".to_string())),
@@ -120,9 +117,7 @@ impl SharedModuleState {
                         scope: counter_scope_name(counter.scope).to_string(),
                         kind: counter.kind.clone(),
                         site_kind: "runtime".to_string(),
-                        function_id: function_id.map(|function_id| {
-                            u32::try_from(function_id.0).expect("function ids should fit in u32")
-                        }),
+                        function_id: *function_id,
                         function_qualname: function_id.and_then(|function_id| {
                             self.lookup_function(function_id)
                                 .map(|function| function.names.qualname.clone())
@@ -239,7 +234,7 @@ fn build_function_index_by_id(
         {
             return Err(PyRuntimeError::new_err(format!(
                 "duplicate function id {} in shared module state ({})",
-                function.function_id.0, function.names.qualname
+                function.function_id, function.names.qualname
             )));
         }
     }
@@ -524,7 +519,7 @@ def f():
             .iter()
             .find(|function| function.names.bind_name == "f")
             .expect("missing lowered function f");
-        let function_id = function.function_id.0 as u32;
+        let function_id = function.function_id;
         let entry_label = function.entry_block().label;
         let entry_label_text = entry_label.to_string();
 
@@ -569,7 +564,7 @@ def f():
                 scope: CounterScope::Function,
                 kind: "runtime_incref".to_string(),
                 site: CounterSite::Runtime {
-                    function_id: Some(FunctionId(7)),
+                    function_id: Some(FunctionId::new(0, 7)),
                 },
             },
             CounterDef {
@@ -577,7 +572,7 @@ def f():
                 scope: CounterScope::Function,
                 kind: "runtime_incref".to_string(),
                 site: CounterSite::Runtime {
-                    function_id: Some(FunctionId(7)),
+                    function_id: Some(FunctionId::new(0, 7)),
                 },
             },
             CounterDef {
@@ -597,7 +592,7 @@ def f():
                 scope: CounterScope::This,
                 kind: "block_entry".to_string(),
                 site: CounterSite::BlockEntry {
-                    function_id: FunctionId(7),
+                    function_id: FunctionId::new(0, 7),
                     block_label: soac_blockpy::block_py::BlockLabel::from_index(0),
                 },
             },

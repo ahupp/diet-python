@@ -37,7 +37,7 @@ fn core_string_expr(
 }
 
 fn core_int_expr(
-    value: usize,
+    value: u64,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
@@ -897,7 +897,7 @@ impl NameBindingMapper<'_> {
             meta.node_index.clone(),
             meta.range,
             vec![
-                core_int_expr(op.function_id.0, meta.node_index.clone(), meta.range),
+                core_int_expr(op.function_id.packed(), meta.node_index.clone(), meta.range),
                 core_string_expr(
                     make_function_kind_name(op.kind).to_string(),
                     meta.node_index.clone(),
@@ -2091,7 +2091,7 @@ fn collect_make_function_callee_ids(
         }
         collect_make_function_callee_ids_in_term(&block.term, &mut out);
     }
-    out.sort_by_key(|id| id.0);
+    out.sort();
     out.dedup();
     out
 }

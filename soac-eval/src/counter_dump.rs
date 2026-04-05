@@ -3,10 +3,12 @@ compile_error!("counter dump format currently requires little-endian hosts");
 
 use std::collections::HashMap;
 use std::mem::size_of;
+use soac_blockpy::block_py::FunctionId;
 
 pub const COUNTER_DUMP_MAGIC: [u8; 8] = *b"SOACCNTR";
 pub const COUNTER_DUMP_VERSION: u16 = 1;
 pub const COUNTER_DUMP_NONE_U32: u32 = u32::MAX;
+pub const COUNTER_DUMP_NONE_U64: u64 = u64::MAX;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +40,7 @@ pub struct CounterDumpRow {
     pub scope: String,
     pub kind: String,
     pub site_kind: String,
-    pub function_id: Option<u32>,
+    pub function_id: Option<FunctionId>,
     pub function_qualname: Option<String>,
     pub block_label: Option<String>,
     pub value: u64,
@@ -96,7 +98,7 @@ impl CounterDumpRecord {
             scope.push(strings.intern(row.scope.as_str())?);
             kind.push(strings.intern(row.kind.as_str())?);
             site_kind.push(strings.intern(row.site_kind.as_str())?);
-            function_id.push(row.function_id.unwrap_or(COUNTER_DUMP_NONE_U32));
+            function_id.push(row.function_id.map(FunctionId::packed).unwrap_or(COUNTER_DUMP_NONE_U64));
             function_qualname.push(match row.function_qualname.as_deref() {
                 Some(qualname) => strings.intern(qualname)?,
                 None => COUNTER_DUMP_NONE_U32,
@@ -128,8 +130,8 @@ impl CounterDumpRecord {
         let scope_offset = counter_id_offset + counter_id.len() * size_of::<u32>();
         let kind_offset = scope_offset + scope.len() * size_of::<u32>();
         let site_kind_offset = kind_offset + kind.len() * size_of::<u32>();
-        let function_id_offset = site_kind_offset + site_kind.len() * size_of::<u32>();
-        let function_qualname_offset = function_id_offset + function_id.len() * size_of::<u32>();
+        let function_id_offset = align_up(site_kind_offset + site_kind.len() * size_of::<u32>(), 8);
+        let function_qualname_offset = function_id_offset + function_id.len() * size_of::<u64>();
         let block_label_offset =
             function_qualname_offset + function_qualname.len() * size_of::<u32>();
         let value_offset = align_up(block_label_offset + block_label.len() * size_of::<u32>(), 8);
@@ -276,7 +278,7 @@ mod tests {
                     scope: "this".to_string(),
                     kind: "block_entry".to_string(),
                     site_kind: "block_entry".to_string(),
-                    function_id: Some(7),
+                    function_id: Some(FunctionId::new(1, 7)),
                     function_qualname: Some("f".to_string()),
                     block_label: Some("bb0".to_string()),
                     value: 11,
@@ -338,8 +340,12 @@ mod tests {
         assert_eq!(read_u32(&bytes, counter_id_offset), 3);
         assert_eq!(read_u32(&bytes, counter_id_offset + 4), 4);
         assert_eq!(
-            read_u32(&bytes, function_id_offset + 4),
-            COUNTER_DUMP_NONE_U32
+            read_u64(&bytes, function_id_offset),
+            FunctionId::new(1, 7).packed()
+        );
+        assert_eq!(
+            read_u64(&bytes, function_id_offset + 8),
+            COUNTER_DUMP_NONE_U64
         );
         assert_eq!(read_u64(&bytes, value_offset), 11);
         assert_eq!(read_u64(&bytes, value_offset + 8), 19);
