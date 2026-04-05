@@ -14,6 +14,12 @@ impl CounterHandle {
     }
 }
 
+pub trait CounterSpec {
+    fn scope(&self) -> CounterScope;
+    fn kind(&self) -> &str;
+    fn site(&self) -> CounterSite;
+}
+
 pub struct CounterBuilder<'a> {
     defs: &'a mut Vec<CounterDef>,
     next_id: usize,
@@ -49,6 +55,10 @@ impl<'a> CounterBuilder<'a> {
         handle
     }
 
+    pub fn define_spec(&mut self, spec: &impl CounterSpec) -> CounterHandle {
+        self.define(spec.scope(), spec.kind(), spec.site())
+    }
+
     pub fn define_if_missing(
         &mut self,
         scope: CounterScope,
@@ -64,6 +74,10 @@ impl<'a> CounterBuilder<'a> {
             return CounterHandle { id: existing.id };
         }
         self.define(scope, kind, site)
+    }
+
+    pub fn define_if_missing_spec(&mut self, spec: &impl CounterSpec) -> CounterHandle {
+        self.define_if_missing(spec.scope(), spec.kind(), spec.site())
     }
 }
 
@@ -234,8 +248,165 @@ fn all_paths_end_in_fallthrough<I: Instr>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BlockEdge, FunctionId, InstrId};
+    use crate::block_py::{
+        BlockEdge, Call, CallArgPositional, CodegenBlockPyExpr, FunctionId, HasMeta, InstrId,
+        Load, LocatedName, Meta, NameLocation, TermBranchTable, WithMeta,
+    };
     use crate::py_expr;
+    use ruff_python_ast::name::Name;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct CallHotTargetsCounterSpec {
+        function_id: FunctionId,
+        instr_id: InstrId,
+    }
+
+    impl CounterSpec for CallHotTargetsCounterSpec {
+        fn scope(&self) -> CounterScope {
+            CounterScope::This
+        }
+
+        fn kind(&self) -> &str {
+            "call_hot_targets"
+        }
+
+        fn site(&self) -> CounterSite {
+            CounterSite::Runtime {
+                function_id: Some(self.function_id),
+                instr_id: Some(self.instr_id),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct HotCallTargets {
+        most_frequent: FunctionId,
+        second_most_frequent: FunctionId,
+    }
+
+    struct ExampleCallHotTargetRule {
+        function_id: FunctionId,
+        entry_label: BlockLabel,
+        hot0_label: BlockLabel,
+        hot1_label: BlockLabel,
+        generic_label: BlockLabel,
+    }
+
+    impl InstrumentInstr<CodegenBlockPyExpr> for ExampleCallHotTargetRule {
+        type Counter = CallHotTargetsCounterSpec;
+
+        fn instrument_instr(&self, instr: &CodegenBlockPyExpr) -> Option<Self::Counter> {
+            let CodegenBlockPyExpr::Call(_) = instr else {
+                return None;
+            };
+            Some(CallHotTargetsCounterSpec {
+                function_id: self.function_id,
+                instr_id: instr
+                    .meta()
+                    .instr_id
+                    .expect("example rule requires a preassigned InstrId"),
+            })
+        }
+
+        fn optimize_instr(
+            &self,
+            counter: &Self::Counter,
+            instr: &CodegenBlockPyExpr,
+        ) -> OptInstr<CodegenBlockPyExpr> {
+            let CodegenBlockPyExpr::Call(call) = instr else {
+                return OptInstr::Instr(instr.clone());
+            };
+            let hot_targets = HotCallTargets {
+                most_frequent: FunctionId::new(9, 11),
+                second_most_frequent: FunctionId::new(9, 12),
+            };
+            let meta = call.meta();
+
+            let entry = Block::new(
+                self.entry_label,
+                Vec::new(),
+                BlockTerm::BranchTable(TermBranchTable {
+                    index: runtime_name_expr("__dp_call_target_dispatch_idx", meta.clone()),
+                    targets: vec![self.hot0_label, self.hot1_label],
+                    default_label: self.generic_label,
+                }),
+                Vec::new(),
+                None,
+            );
+            let hot0 = Block::new(
+                self.hot0_label,
+                vec![runtime_helper_call(
+                    &format!(
+                        "__dp_call_direct_{}_{}",
+                        hot_targets.most_frequent.module_id(),
+                        hot_targets.most_frequent.function_id()
+                    ),
+                    call,
+                )],
+                BlockTerm::Jump(BlockEdge::new(BlockLabel::fallthrough())),
+                Vec::new(),
+                None,
+            );
+            let hot1 = Block::new(
+                self.hot1_label,
+                vec![runtime_helper_call(
+                    &format!(
+                        "__dp_call_direct_{}_{}",
+                        hot_targets.second_most_frequent.module_id(),
+                        hot_targets.second_most_frequent.function_id()
+                    ),
+                    call,
+                )],
+                BlockTerm::Jump(BlockEdge::new(BlockLabel::fallthrough())),
+                Vec::new(),
+                None,
+            );
+            let generic = Block::new(
+                self.generic_label,
+                vec![CodegenBlockPyExpr::Call(call.clone().with_meta(counter_instr_meta(
+                    counter,
+                    meta,
+                )))],
+                BlockTerm::Jump(BlockEdge::new(BlockLabel::fallthrough())),
+                Vec::new(),
+                None,
+            );
+
+            OptInstr::Block(
+                OptBlock::new(entry, vec![hot0, hot1, generic])
+                    .expect("call hot target example fragment should validate"),
+            )
+        }
+    }
+
+    fn counter_instr_meta(counter: &CallHotTargetsCounterSpec, mut meta: Meta) -> Meta {
+        meta.instr_id = Some(counter.instr_id);
+        meta
+    }
+
+    fn runtime_name_expr(name: &str, meta: Meta) -> CodegenBlockPyExpr {
+        Load::new(LocatedName {
+            id: Name::new(name),
+            location: NameLocation::RuntimeName,
+        })
+        .with_meta(meta)
+        .into()
+    }
+
+    fn runtime_helper_call(
+        helper_name: &str,
+        call: &Call<CodegenBlockPyExpr>,
+    ) -> CodegenBlockPyExpr {
+        let meta = call.meta();
+        CodegenBlockPyExpr::Call(
+            Call::new(
+                runtime_name_expr(helper_name, meta.clone()),
+                call.args.clone(),
+                call.keywords.clone(),
+            )
+            .with_meta(meta),
+        )
+    }
 
     #[test]
     fn counter_builder_allocates_sequential_ids() {
@@ -284,6 +455,27 @@ mod tests {
 
         assert_eq!(handle.id(), CounterId(9));
         assert_eq!(defs.len(), 1);
+    }
+
+    #[test]
+    fn counter_builder_defines_from_counter_spec() {
+        let spec = CallHotTargetsCounterSpec {
+            function_id: FunctionId::new(1, 2),
+            instr_id: InstrId::new(BlockLabel::from_index(3), 4),
+        };
+        let mut defs = Vec::new();
+        let handle = CounterBuilder::new(&mut defs).define_spec(&spec);
+
+        assert_eq!(handle.id(), CounterId(0));
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].kind, "call_hot_targets");
+        assert_eq!(
+            defs[0].site,
+            CounterSite::Runtime {
+                function_id: Some(FunctionId::new(1, 2)),
+                instr_id: Some(InstrId::new(BlockLabel::from_index(3), 4)),
+            }
+        );
     }
 
     #[test]
@@ -336,5 +528,55 @@ mod tests {
         let err = OptBlock::new(entry, Vec::new()).expect_err("return should be rejected");
 
         assert!(err.contains("fallthrough"), "{err}");
+    }
+
+    #[test]
+    fn example_call_rule_matches_calls_and_builds_specialization_fragment() {
+        let function_id = FunctionId::new(7, 8);
+        let rule = ExampleCallHotTargetRule {
+            function_id,
+            entry_label: BlockLabel::from_index(10),
+            hot0_label: BlockLabel::from_index(11),
+            hot1_label: BlockLabel::from_index(12),
+            generic_label: BlockLabel::from_index(13),
+        };
+        let call = CodegenBlockPyExpr::Call(
+            Call::new(
+                runtime_name_expr("__dp_dynamic_callee", Meta::synthetic()),
+                vec![CallArgPositional::Positional(runtime_name_expr(
+                    "arg0",
+                    Meta::synthetic(),
+                ))],
+                Vec::new(),
+            )
+            .with_meta(Meta {
+                instr_id: Some(InstrId::new(BlockLabel::from_index(2), 5)),
+                ..Meta::synthetic()
+            }),
+        );
+
+        let counter = rule
+            .instrument_instr(&call)
+            .expect("call should produce instrumentation spec");
+        assert_eq!(counter.function_id, function_id);
+        assert_eq!(counter.instr_id, InstrId::new(BlockLabel::from_index(2), 5));
+
+        let OptInstr::Block(fragment) = rule.optimize_instr(&counter, &call) else {
+            panic!("call optimization should return an OptBlock");
+        };
+
+        assert_eq!(fragment.entry().label, BlockLabel::from_index(10));
+        let BlockTerm::BranchTable(branch) = &fragment.entry().term else {
+            panic!("entry fragment should dispatch with br_table");
+        };
+        assert_eq!(branch.targets, vec![BlockLabel::from_index(11), BlockLabel::from_index(12)]);
+        assert_eq!(branch.default_label, BlockLabel::from_index(13));
+        assert_eq!(fragment.dependencies().len(), 3);
+        for block in fragment.dependencies() {
+            let BlockTerm::Jump(edge) = &block.term else {
+                panic!("dependency block should jump to fallthrough");
+            };
+            assert_eq!(edge.target, BlockLabel::fallthrough());
+        }
     }
 }
