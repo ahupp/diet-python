@@ -1,7 +1,7 @@
 use super::{
-    is_internal_symbol, walk_block, walk_expr, Block, BlockPyFunction, BlockPyBlockVisitor,
-    BlockPyFunctionVisitor, BlockPyInstrVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
-    BlockPyTermVisitor, Call, CallArgPositional, ChildVisitable, CoreBlockPyExpr,
+    is_internal_symbol, walk_block, walk_expr, Block, BlockPyFunction, VisitBlock,
+    VisitFunction, VisitInstr, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
+    VisitTerm, Call, CallArgPositional, ChildVisitable, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionName, Instr, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -761,7 +761,7 @@ struct StorageLayoutScopeCollector {
     cell_ref_logical_names: HashSet<String>,
 }
 
-impl<I> crate::block_py::BlockPyInstrVisitor<I> for StorageLayoutScopeCollector
+impl<I> crate::block_py::VisitInstr<I> for StorageLayoutScopeCollector
 where
     I: ScopeExprNode,
 {
@@ -779,9 +779,9 @@ where
     }
 }
 
-impl<I> BlockPyTermVisitor<I> for StorageLayoutScopeCollector where I: ScopeExprNode {}
+impl<I> VisitTerm<I> for StorageLayoutScopeCollector where I: ScopeExprNode {}
 
-impl<I> BlockPyBlockVisitor<I> for StorageLayoutScopeCollector
+impl<I> VisitBlock<I> for StorageLayoutScopeCollector
 where
     I: ScopeExprNode,
 {
@@ -802,7 +802,7 @@ where
     }
 }
 
-impl<P> BlockPyFunctionVisitor<P> for StorageLayoutScopeCollector
+impl<P> VisitFunction<P> for StorageLayoutScopeCollector
 where
     P: BlockPyPass,
     P::Expr: ScopeExprNode,

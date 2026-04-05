@@ -261,7 +261,7 @@ where
         names: &'a mut HashSet<String>,
     }
 
-    impl<E> crate::block_py::BlockPyInstrVisitor<E> for AssignedNamesVisitor<'_>
+    impl<E> crate::block_py::VisitInstr<E> for AssignedNamesVisitor<'_>
     where
         E: ScopeExprNode + Instr,
     {
@@ -270,7 +270,7 @@ where
         }
     }
 
-    impl<E> crate::block_py::BlockPyTermVisitor<E> for AssignedNamesVisitor<'_>
+    impl<E> crate::block_py::VisitTerm<E> for AssignedNamesVisitor<'_>
     where
         E: ScopeExprNode + Instr,
     {
@@ -289,7 +289,7 @@ where
         names: &'a mut HashSet<String>,
     }
 
-    impl<E> crate::block_py::BlockPyInstrVisitor<E> for NamedExprTargetVisitor<'_>
+    impl<E> crate::block_py::VisitInstr<E> for NamedExprTargetVisitor<'_>
     where
         E: ScopeExprNode + Instr,
     {

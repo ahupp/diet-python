@@ -68,7 +68,7 @@ macro_rules! define_operation {
         {
             fn visit_children<V>(&self, visitor: &mut V)
             where
-                V: crate::block_py::BlockPyInstrVisitor<$expr_ty> + ?Sized,
+                V: crate::block_py::VisitInstr<$expr_ty> + ?Sized,
             {
                 #[allow(unused_variables)]
                 let _ = &visitor;
@@ -77,7 +77,7 @@ macro_rules! define_operation {
 
             fn visit_children_mut<V>(&mut self, visitor: &mut V)
             where
-                V: crate::block_py::BlockPyInstrMutVisitor<$expr_ty> + ?Sized,
+                V: crate::block_py::VisitMutInstr<$expr_ty> + ?Sized,
             {
                 #[allow(unused_variables)]
                 let _ = &visitor;
@@ -176,14 +176,14 @@ macro_rules! define_operation {
         impl<E: Instr> ChildVisitable<E> for $name {
             fn visit_children<V>(&self, visitor: &mut V)
             where
-                V: crate::block_py::BlockPyInstrVisitor<E> + ?Sized,
+                V: crate::block_py::VisitInstr<E> + ?Sized,
             {
                 let _ = &visitor;
             }
 
             fn visit_children_mut<V>(&mut self, visitor: &mut V)
             where
-                V: crate::block_py::BlockPyInstrMutVisitor<E> + ?Sized,
+                V: crate::block_py::VisitMutInstr<E> + ?Sized,
             {
                 let _ = &visitor;
             }
