@@ -85,7 +85,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
+        impl<$expr_ty: Instr> Mappable<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
             fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
@@ -189,7 +189,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<E: Instr> InstrExprNode<E> for $name {
+        impl<E: Instr> Mappable<E> for $name {
             type Mapped<T: Instr> = $name;
 
             fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>

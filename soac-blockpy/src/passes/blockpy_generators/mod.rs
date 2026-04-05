@@ -9,7 +9,7 @@ use crate::block_py::{
     CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithYield, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr, ImplicitNoneExpr, Instr,
-    InstrExprNode, Load, MakeFunction, ModuleNameGen, ScopeExprNode, StorageLayout, Store,
+    Load, MakeFunction, Mappable, ModuleNameGen, ScopeExprNode, StorageLayout, Store,
     TermBranchTable, TermIf, TermRaise, TryMapExpr, UnaryOp, UnaryOpKind, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;

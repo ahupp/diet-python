@@ -1,7 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
     BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, ChildVisitable, FunctionId,
-    FunctionKind, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, WithMeta,
+    FunctionKind, HasMeta, Instr, InstrName, MapExpr, Mappable, Meta, TryMapExpr, WithMeta,
 };
 use std::fmt;
 
@@ -162,7 +162,7 @@ where
     }
 }
 
-impl<E: Instr> InstrExprNode<E> for Call<E> {
+impl<E: Instr> Mappable<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
@@ -296,7 +296,7 @@ where
     }
 }
 
-impl<I: Instr> InstrExprNode<I> for Load<I> {
+impl<I: Instr> Mappable<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
@@ -386,7 +386,7 @@ where
     }
 }
 
-impl<I: Instr> InstrExprNode<I> for Store<I> {
+impl<I: Instr> Mappable<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
@@ -470,7 +470,7 @@ where
     }
 }
 
-impl<I: Instr> InstrExprNode<I> for Del<I> {
+impl<I: Instr> Mappable<I> for Del<I> {
     type Mapped<T: Instr> = Del<T>;
 
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>

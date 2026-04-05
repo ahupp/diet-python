@@ -94,6 +94,18 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.map_walk(&mut *f).into(),
             }
         });
+        let map_typed_children_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => map.map_expr(Self::#variant_name(node)),
+            }
+        });
+        let try_map_typed_children_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => map.try_map_expr(Self::#variant_name(node)),
+            }
+        });
         let walk_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
@@ -169,6 +181,28 @@ impl EnumBroadcastTarget {
             },
             Self::Mappable => quote! {
                 impl #impl_generics Mappable<Self> for #enum_name #ty_generics #where_clause {
+                    type Mapped<T: Instr> = T;
+
+                    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+                    where
+                        T: Instr,
+                        M: MapExpr<Self, T>,
+                    {
+                        match self {
+                            #( #map_typed_children_arms )*
+                        }
+                    }
+
+                    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+                    where
+                        T: Instr,
+                        M: TryMapExpr<Self, T, Error>,
+                    {
+                        match self {
+                            #( #try_map_typed_children_arms )*
+                        }
+                    }
+
                     fn map_walk(self, f: &mut impl FnMut(Self) -> Self) -> Self {
                         match self {
                             #( #map_walk_arms )*

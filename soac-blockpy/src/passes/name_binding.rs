@@ -6,7 +6,7 @@ use crate::block_py::{
     CallableScopeKind, CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName,
     ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
-    FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    FunctionKind, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
     MakeCell, MakeFunction, MapExpr, Mappable, NameLocation, SetItem, StorageLayout, Store,
     UnresolvedName, WithMeta, ChildVisitable,
 };
@@ -337,7 +337,7 @@ fn with_helper_arg_mut_in_operation<N: BlockPyNameLike + Clone, T>(
     f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
 ) -> bool
 where
-    T: crate::block_py::InstrExprNode<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>
+    T: crate::block_py::Mappable<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>
         + crate::block_py::ChildVisitable<CoreBlockPyExpr<N>>,
 {
     let current = 0;

@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_runtime_positional_call_expr_with_meta, map_module, BlockPyModule,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, MapExpr, Mappable,
     UnresolvedName, WithMeta, YieldFrom,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};

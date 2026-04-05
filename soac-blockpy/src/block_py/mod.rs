@@ -258,12 +258,36 @@ pub trait ChildVisitable<E: Instr>: Clone + fmt::Debug + Sized {
         V: crate::block_py::VisitMutInstr<E> + ?Sized;
 }
 
-pub trait Mappable<E>: Sized {
-    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self;
+pub trait Mappable<E>: Sized
+where
+    E: Instr,
+{
+    type Mapped<T: Instr>;
+
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    where
+        T: Instr,
+        M: MapExpr<E, T>;
+
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        M: TryMapExpr<E, T, Error>;
+
+    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self
+    where
+        Self: Mappable<E, Mapped<E> = Self>,
+    {
+        self.map_typed_children(&mut IdentityExprMap {
+            f,
+            _marker: std::marker::PhantomData,
+        })
+    }
 
     fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
     where
         E: Clone,
+        Self: Mappable<E, Mapped<E> = Self>,
     {
         let mut first_error = None;
         let walked = self.map_walk(&mut |child| {
@@ -291,22 +315,6 @@ pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
-pub trait InstrExprNode<I>: Sized
-where
-    I: Instr,
-{
-    type Mapped<T: Instr>;
-
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
-    where
-        T: Instr,
-        M: MapExpr<I, T>;
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        M: TryMapExpr<I, T, Error>;
-}
-
 struct IdentityExprMap<'a, I, F> {
     f: &'a mut F,
     _marker: std::marker::PhantomData<fn(I) -> I>,
@@ -323,19 +331,6 @@ where
 
     fn map_name(&mut self, name: I::Name) -> I::Name {
         name
-    }
-}
-
-impl<I, N> Mappable<I> for N
-where
-    I: Instr,
-    N: InstrExprNode<I, Mapped<I> = N>,
-{
-    fn map_walk(self, f: &mut impl FnMut(I) -> I) -> Self {
-        self.map_typed_children(&mut IdentityExprMap {
-            f,
-            _marker: std::marker::PhantomData,
-        })
     }
 }
 
@@ -386,6 +381,24 @@ impl ChildVisitable<Expr> for Expr {
 }
 
 impl Mappable<Expr> for Expr {
+    type Mapped<T: Instr> = T;
+
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    where
+        T: Instr,
+        M: MapExpr<Expr, T>,
+    {
+        map.map_expr(self)
+    }
+
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        M: TryMapExpr<Expr, T, Error>,
+    {
+        map.try_map_expr(self)
+    }
+
     fn map_walk(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
         struct DirectChildTransformer<'a, F>(&'a mut F);
 
@@ -498,6 +511,24 @@ impl ChildVisitable<RuffExpr> for RuffExpr {
 }
 
 impl Mappable<RuffExpr> for RuffExpr {
+    type Mapped<T: Instr> = T;
+
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    where
+        T: Instr,
+        M: MapExpr<RuffExpr, T>,
+    {
+        map.map_expr(self)
+    }
+
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        M: TryMapExpr<RuffExpr, T, Error>,
+    {
+        map.try_map_expr(self)
+    }
+
     fn map_walk(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
         RuffExpr(self.0.map_walk(&mut |expr| f(RuffExpr(expr)).0))
     }
