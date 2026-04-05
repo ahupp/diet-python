@@ -49,10 +49,7 @@ pub(crate) use visit::{
     instr_any, walk_block, walk_block_mut, walk_expr, walk_expr_mut, walk_fn, walk_fn_mut,
     walk_module, walk_module_mut, walk_stmt, walk_stmt_mut, walk_term, walk_term_mut,
 };
-pub use visit::{
-    Visit, VisitBlock, VisitFunction, VisitInstr, VisitModule, VisitMut, VisitMutBlock,
-    VisitMutFunction, VisitMutInstr, VisitMutModule, VisitMutTerm, VisitTerm,
-};
+pub use visit::{Visit, VisitMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CounterId(pub usize);
