@@ -1,5 +1,34 @@
 use super::*;
 
+pub trait MapInstr<In: Instr, Out: Instr> {
+    fn map_instr(&mut self, instr: In) -> Out;
+    fn map_name(&mut self, name: In::Name) -> Out::Name;
+}
+
+pub trait TryMapInstr<In: Instr, Out: Instr, Error> {
+    fn try_map_instr(&mut self, instr: In) -> Result<Out, Error>;
+    fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
+}
+
+pub(crate) struct IdentityInstrMap<'a, I, F> {
+    pub(crate) f: &'a mut F,
+    pub(crate) _marker: std::marker::PhantomData<fn(I) -> I>,
+}
+
+impl<I, F> MapInstr<I, I> for IdentityInstrMap<'_, I, F>
+where
+    I: Instr,
+    F: FnMut(I) -> I,
+{
+    fn map_instr(&mut self, instr: I) -> I {
+        (self.f)(instr)
+    }
+
+    fn map_name(&mut self, name: I::Name) -> I::Name {
+        name
+    }
+}
+
 pub(crate) trait MapTerm<In, Out>: MapInstr<In, Out>
 where
     In: Instr,

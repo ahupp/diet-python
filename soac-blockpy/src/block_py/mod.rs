@@ -36,10 +36,11 @@ pub use crate::passes::{
     LocatedCoreBlockPyExpr,
 };
 pub use visit::{Visit, VisitMut};
+pub use map::{MapInstr, TryMapInstr};
 #[allow(unused_imports)]
 pub(crate) use map::{
-    MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction, TryMapModule,
-    TryMapTerm,
+    IdentityInstrMap, MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction,
+    TryMapModule, TryMapTerm,
 };
 #[allow(unused_imports)]
 pub(crate) use visit::{
@@ -240,16 +241,6 @@ impl From<RuffExpr> for ast::Expr {
     }
 }
 
-pub trait MapInstr<In: Instr, Out: Instr> {
-    fn map_instr(&mut self, instr: In) -> Out;
-    fn map_name(&mut self, name: In::Name) -> Out::Name;
-}
-
-pub trait TryMapInstr<In: Instr, Out: Instr, Error> {
-    fn try_map_instr(&mut self, instr: In) -> Result<Out, Error>;
-    fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
-}
-
 pub trait ChildVisitable<E: Instr>: Clone + fmt::Debug + Sized {
     fn visit_children<V>(&self, visitor: &mut V)
     where
@@ -280,7 +271,7 @@ where
     where
         Self: Mappable<E, Mapped<E> = Self>,
     {
-        self.map_typed_children(&mut IdentityExprMap {
+        self.map_typed_children(&mut IdentityInstrMap {
             f,
             _marker: std::marker::PhantomData,
         })
@@ -315,25 +306,6 @@ where
 
 pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
-}
-
-struct IdentityExprMap<'a, I, F> {
-    f: &'a mut F,
-    _marker: std::marker::PhantomData<fn(I) -> I>,
-}
-
-impl<I, F> MapInstr<I, I> for IdentityExprMap<'_, I, F>
-where
-    I: Instr,
-    F: FnMut(I) -> I,
-{
-    fn map_instr(&mut self, instr: I) -> I {
-        (self.f)(instr)
-    }
-
-    fn map_name(&mut self, name: I::Name) -> I::Name {
-        name
-    }
 }
 
 impl BlockPyNameLike for ast::ExprName {
