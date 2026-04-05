@@ -71,49 +71,49 @@ fn make_eval_order_explicit_in_core_expr(
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
         CoreBlockPyExprWithAwaitAndYield::BinOp(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::UnaryOp(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Call(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::GetAttr(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::SetAttr(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::GetItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::SetItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::DelItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Load(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Store(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Del(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::MakeCell(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::CellRefForName(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::CellRef(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::MakeFunction(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
             let meta = await_expr.meta();
@@ -262,49 +262,49 @@ fn make_eval_order_explicit_in_core_expr_without_await(
     match expr {
         CoreBlockPyExprWithYield::Literal(_) => expr,
         CoreBlockPyExprWithYield::BinOp(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::UnaryOp(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Call(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::GetAttr(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::SetAttr(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::GetItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::SetItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::DelItem(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Load(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Store(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Del(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::MakeCell(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::CellRefForName(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::CellRef(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::MakeFunction(operation) => operation
-            .map_walk(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .map_children(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
             let meta = yield_expr.meta();

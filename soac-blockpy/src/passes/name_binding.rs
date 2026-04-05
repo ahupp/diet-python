@@ -1086,7 +1086,19 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                     .with_meta(meta)
                     .into()
             }
-            other => other.map_walk(&mut |child| self.map_instr(child)).into(),
+            CoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::Call(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::Store(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::Del(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
+            CoreBlockPyExpr::CellRefForName(node) => node.into(),
+            CoreBlockPyExpr::CellRef(node) => node.into(),
         }
     }
 

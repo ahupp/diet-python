@@ -270,38 +270,6 @@ where
         T: Instr,
         M: TryMapInstr<E, T, Error>;
 
-    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self
-    where
-        Self: Mappable<E, Mapped<E> = Self>,
-    {
-        self.map_children(f)
-    }
-
-    fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
-    where
-        E: Clone,
-        Self: Mappable<E, Mapped<E> = Self>,
-    {
-        let mut first_error = None;
-        let walked = self.map_walk(&mut |child| {
-            if first_error.is_some() {
-                return child;
-            }
-
-            let original = child.clone();
-            match f(child) {
-                Ok(mapped) => mapped,
-                Err(error) => {
-                    first_error = Some(error);
-                    original
-                }
-            }
-        });
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(walked),
-        }
-    }
 }
 
 pub trait Instr: Clone + fmt::Debug + Sized {
@@ -373,23 +341,6 @@ impl Mappable<Expr> for Expr {
         map.try_map_instr(self)
     }
 
-    fn map_walk(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
-        struct DirectChildTransformer<'a, F>(&'a mut F);
-
-        impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
-        where
-            F: FnMut(Expr) -> Expr,
-        {
-            fn visit_expr(&mut self, expr: &mut Expr) {
-                *expr = (self.0)(expr.clone());
-            }
-        }
-
-        let mut expr = self;
-        let mut transformer = DirectChildTransformer(f);
-        crate::transformer::walk_expr(&mut transformer, &mut expr);
-        expr
-    }
 }
 
 impl Instr for Expr {
@@ -503,9 +454,6 @@ impl Mappable<RuffExpr> for RuffExpr {
         map.try_map_instr(self)
     }
 
-    fn map_walk(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
-        RuffExpr(self.0.map_walk(&mut |expr| f(RuffExpr(expr)).0))
-    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
