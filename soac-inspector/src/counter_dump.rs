@@ -28,6 +28,7 @@ pub struct CounterDumpRecordView<'a> {
     kind: &'a [u32],
     site_kind: &'a [u32],
     function_id: &'a [u64],
+    current_function_id: &'a [u64],
     function_qualname: &'a [u32],
     block_label: &'a [u32],
     value: &'a [u64],
@@ -39,6 +40,7 @@ pub struct CounterDumpRowView<'a> {
     pub kind: &'a str,
     pub site_kind: &'a str,
     pub function_id: Option<FunctionId>,
+    pub current_function_id: Option<FunctionId>,
     pub function_qualname: Option<&'a str>,
     pub block_label: Option<&'a str>,
     pub value: u64,
@@ -90,6 +92,8 @@ impl<'a> CounterDumpRecordView<'a> {
             site_kind: self.resolve_string_id(self.site_kind[index])?,
             function_id: (self.function_id[index] != COUNTER_DUMP_NONE_U64)
                 .then_some(FunctionId::from_packed(self.function_id[index])),
+            current_function_id: (self.current_function_id[index] != COUNTER_DUMP_NONE_U64)
+                .then_some(FunctionId::from_packed(self.current_function_id[index])),
             function_qualname: self.resolve_optional_string_id(self.function_qualname[index])?,
             block_label: self.resolve_optional_string_id(self.block_label[index])?,
             value: self.value[index],
@@ -201,6 +205,12 @@ pub fn parse_counter_dump_records(bytes: &[u8]) -> Result<Vec<CounterDumpRecordV
         let function_id_offset = usize::try_from(header.function_id_offset).map_err(|_| {
             format!("counter dump function_id offset at byte offset {offset} is too large")
         })?;
+        let current_function_id_offset =
+            usize::try_from(header.current_function_id_offset).map_err(|_| {
+                format!(
+                    "counter dump current_function_id offset at byte offset {offset} is too large"
+                )
+            })?;
         let function_qualname_offset =
             usize::try_from(header.function_qualname_offset).map_err(|_| {
                 format!(
@@ -223,6 +233,7 @@ pub fn parse_counter_dump_records(bytes: &[u8]) -> Result<Vec<CounterDumpRecordV
             kind_offset,
             site_kind_offset,
             function_id_offset,
+            current_function_id_offset,
             function_qualname_offset,
             block_label_offset,
             value_offset,
@@ -248,6 +259,8 @@ pub fn parse_counter_dump_records(bytes: &[u8]) -> Result<Vec<CounterDumpRecordV
         let site_kind = unsafe { cast_slice::<u32>(record_bytes, site_kind_offset, row_count) }?;
         let function_id =
             unsafe { cast_slice::<u64>(record_bytes, function_id_offset, row_count) }?;
+        let current_function_id =
+            unsafe { cast_slice::<u64>(record_bytes, current_function_id_offset, row_count) }?;
         let function_qualname =
             unsafe { cast_slice::<u32>(record_bytes, function_qualname_offset, row_count) }?;
         let block_label =
@@ -277,6 +290,7 @@ pub fn parse_counter_dump_records(bytes: &[u8]) -> Result<Vec<CounterDumpRecordV
             kind,
             site_kind,
             function_id,
+            current_function_id,
             function_qualname,
             block_label,
             value,
@@ -358,6 +372,7 @@ mod test {
                 kind: "block_entry".to_string(),
                 site_kind: "block_entry".to_string(),
                 function_id: Some(FunctionId::new(1, 7)),
+                current_function_id: Some(FunctionId::new(1, 7)),
                 function_qualname: Some("f".to_string()),
                 block_label: Some("bb0".to_string()),
                 value: 5,
@@ -372,6 +387,7 @@ mod test {
                 kind: "runtime_incref".to_string(),
                 site_kind: "runtime".to_string(),
                 function_id: None,
+                current_function_id: None,
                 function_qualname: None,
                 block_label: None,
                 value: 11,
@@ -404,6 +420,7 @@ mod test {
         assert_eq!(first_row.kind, "block_entry");
         assert_eq!(first_row.site_kind, "block_entry");
         assert_eq!(first_row.function_id, Some(FunctionId::new(1, 7)));
+        assert_eq!(first_row.current_function_id, Some(FunctionId::new(1, 7)));
         assert_eq!(first_row.function_qualname, Some("f"));
         assert_eq!(first_row.block_label, Some("bb0"));
         assert_eq!(first_row.value, 5);
@@ -417,6 +434,7 @@ mod test {
         assert_eq!(second_row.kind, "runtime_incref");
         assert_eq!(second_row.site_kind, "runtime");
         assert_eq!(second_row.function_id, None);
+        assert_eq!(second_row.current_function_id, None);
         assert_eq!(second_row.function_qualname, None);
         assert_eq!(second_row.block_label, None);
         assert_eq!(second_row.value, 11);

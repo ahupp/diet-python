@@ -1,4 +1,5 @@
 use soac_inspector::CounterDumpFile;
+use soac_inspector::CounterDumpRowView;
 use std::path::PathBuf;
 
 struct Args {
@@ -31,6 +32,25 @@ fn print_usage() {
     eprintln!("usage: inspect_counters <counter-dump-file>");
 }
 
+fn format_counter_row(row: &CounterDumpRowView<'_>) -> String {
+    format!(
+        "  counter={} scope={} kind={} site={} site_function_id={} current_function_id={} function={} block={} value={}",
+        row.counter_id,
+        row.scope,
+        row.kind,
+        row.site_kind,
+        row.function_id
+            .map(|function_id| function_id.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        row.current_function_id
+            .map(|function_id| function_id.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        row.function_qualname.unwrap_or("-"),
+        row.block_label.unwrap_or("-"),
+        row.value,
+    )
+}
+
 fn main() -> Result<(), String> {
     let args = parse_args().inspect_err(|_| print_usage())?;
     let dump = CounterDumpFile::open(args.path.as_path())?;
@@ -45,20 +65,34 @@ fn main() -> Result<(), String> {
         );
         for row_index in 0..record.row_count() {
             let row = record.row(row_index)?;
-            println!(
-                "  counter={} scope={} kind={} site={} function_id={} function={} block={} value={}",
-                row.counter_id,
-                row.scope,
-                row.kind,
-                row.site_kind,
-                row.function_id
-                    .map(|function_id| function_id.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                row.function_qualname.unwrap_or("-"),
-                row.block_label.unwrap_or("-"),
-                row.value,
-            );
+            println!("{}", format_counter_row(&row));
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_counter_row;
+    use soac_blockpy::block_py::FunctionId;
+    use soac_inspector::CounterDumpRowView;
+
+    #[test]
+    fn row_output_includes_current_function_id() {
+        let row = CounterDumpRowView {
+            counter_id: 3,
+            scope: "function",
+            kind: "runtime_incref",
+            site_kind: "runtime",
+            function_id: Some(FunctionId::new(1, 7)),
+            current_function_id: Some(FunctionId::new(1, 7)),
+            function_qualname: Some("pkg.mod.f"),
+            block_label: None,
+            value: 11,
+        };
+
+        let rendered = format_counter_row(&row);
+        assert!(rendered.contains("site_function_id=1:7"), "{rendered}");
+        assert!(rendered.contains("current_function_id=1:7"), "{rendered}");
+    }
 }

@@ -6,7 +6,7 @@ use std::mem::size_of;
 use soac_blockpy::block_py::FunctionId;
 
 pub const COUNTER_DUMP_MAGIC: [u8; 8] = *b"SOACCNTR";
-pub const COUNTER_DUMP_VERSION: u16 = 1;
+pub const COUNTER_DUMP_VERSION: u16 = 2;
 pub const COUNTER_DUMP_NONE_U32: u32 = u32::MAX;
 pub const COUNTER_DUMP_NONE_U64: u64 = u64::MAX;
 
@@ -29,6 +29,7 @@ pub struct CounterDumpRecordHeader {
     pub kind_offset: u32,
     pub site_kind_offset: u32,
     pub function_id_offset: u32,
+    pub current_function_id_offset: u32,
     pub function_qualname_offset: u32,
     pub block_label_offset: u32,
     pub value_offset: u32,
@@ -41,6 +42,7 @@ pub struct CounterDumpRow {
     pub kind: String,
     pub site_kind: String,
     pub function_id: Option<FunctionId>,
+    pub current_function_id: Option<FunctionId>,
     pub function_qualname: Option<String>,
     pub block_label: Option<String>,
     pub value: u64,
@@ -89,6 +91,7 @@ impl CounterDumpRecord {
         let mut kind = Vec::with_capacity(self.rows.len());
         let mut site_kind = Vec::with_capacity(self.rows.len());
         let mut function_id = Vec::with_capacity(self.rows.len());
+        let mut current_function_id = Vec::with_capacity(self.rows.len());
         let mut function_qualname = Vec::with_capacity(self.rows.len());
         let mut block_label = Vec::with_capacity(self.rows.len());
         let mut value = Vec::with_capacity(self.rows.len());
@@ -98,7 +101,16 @@ impl CounterDumpRecord {
             scope.push(strings.intern(row.scope.as_str())?);
             kind.push(strings.intern(row.kind.as_str())?);
             site_kind.push(strings.intern(row.site_kind.as_str())?);
-            function_id.push(row.function_id.map(FunctionId::packed).unwrap_or(COUNTER_DUMP_NONE_U64));
+            function_id.push(
+                row.function_id
+                    .map(FunctionId::packed)
+                    .unwrap_or(COUNTER_DUMP_NONE_U64),
+            );
+            current_function_id.push(
+                row.current_function_id
+                    .map(FunctionId::packed)
+                    .unwrap_or(COUNTER_DUMP_NONE_U64),
+            );
             function_qualname.push(match row.function_qualname.as_deref() {
                 Some(qualname) => strings.intern(qualname)?,
                 None => COUNTER_DUMP_NONE_U32,
@@ -131,7 +143,10 @@ impl CounterDumpRecord {
         let kind_offset = scope_offset + scope.len() * size_of::<u32>();
         let site_kind_offset = kind_offset + kind.len() * size_of::<u32>();
         let function_id_offset = align_up(site_kind_offset + site_kind.len() * size_of::<u32>(), 8);
-        let function_qualname_offset = function_id_offset + function_id.len() * size_of::<u64>();
+        let current_function_id_offset =
+            function_id_offset + function_id.len() * size_of::<u64>();
+        let function_qualname_offset =
+            current_function_id_offset + current_function_id.len() * size_of::<u64>();
         let block_label_offset =
             function_qualname_offset + function_qualname.len() * size_of::<u32>();
         let value_offset = align_up(block_label_offset + block_label.len() * size_of::<u32>(), 8);
@@ -163,6 +178,8 @@ impl CounterDumpRecord {
             site_kind_offset: u32::try_from(site_kind_offset)
                 .map_err(|_| "counter dump offset exceeds u32 capacity".to_string())?,
             function_id_offset: u32::try_from(function_id_offset)
+                .map_err(|_| "counter dump offset exceeds u32 capacity".to_string())?,
+            current_function_id_offset: u32::try_from(current_function_id_offset)
                 .map_err(|_| "counter dump offset exceeds u32 capacity".to_string())?,
             function_qualname_offset: u32::try_from(function_qualname_offset)
                 .map_err(|_| "counter dump offset exceeds u32 capacity".to_string())?,
@@ -196,6 +213,11 @@ impl CounterDumpRecord {
             &mut bytes,
             function_id_offset,
             bytes_of_slice(function_id.as_slice()),
+        )?;
+        write_bytes(
+            &mut bytes,
+            current_function_id_offset,
+            bytes_of_slice(current_function_id.as_slice()),
         )?;
         write_bytes(
             &mut bytes,
@@ -279,6 +301,7 @@ mod tests {
                     kind: "block_entry".to_string(),
                     site_kind: "block_entry".to_string(),
                     function_id: Some(FunctionId::new(1, 7)),
+                    current_function_id: Some(FunctionId::new(1, 7)),
                     function_qualname: Some("f".to_string()),
                     block_label: Some("bb0".to_string()),
                     value: 11,
@@ -289,6 +312,7 @@ mod tests {
                     kind: "runtime_incref".to_string(),
                     site_kind: "runtime".to_string(),
                     function_id: None,
+                    current_function_id: None,
                     function_qualname: None,
                     block_label: None,
                     value: 19,
@@ -311,9 +335,10 @@ mod tests {
         let kind_offset = read_u32(&bytes, 52) as usize;
         let site_kind_offset = read_u32(&bytes, 56) as usize;
         let function_id_offset = read_u32(&bytes, 60) as usize;
-        let function_qualname_offset = read_u32(&bytes, 64) as usize;
-        let block_label_offset = read_u32(&bytes, 68) as usize;
-        let value_offset = read_u32(&bytes, 72) as usize;
+        let current_function_id_offset = read_u32(&bytes, 64) as usize;
+        let function_qualname_offset = read_u32(&bytes, 68) as usize;
+        let block_label_offset = read_u32(&bytes, 72) as usize;
+        let value_offset = read_u32(&bytes, 76) as usize;
 
         assert_eq!(header_size, size_of::<CounterDumpRecordHeader>());
         assert_eq!(record_len, bytes.len());
@@ -324,7 +349,8 @@ mod tests {
         assert!(kind_offset > scope_offset);
         assert!(site_kind_offset > kind_offset);
         assert!(function_id_offset > site_kind_offset);
-        assert!(function_qualname_offset > function_id_offset);
+        assert!(current_function_id_offset > function_id_offset);
+        assert!(function_qualname_offset > current_function_id_offset);
         assert!(block_label_offset > function_qualname_offset);
         assert!(value_offset > block_label_offset);
         assert_eq!(value_offset % 8, 0);
@@ -345,6 +371,14 @@ mod tests {
         );
         assert_eq!(
             read_u64(&bytes, function_id_offset + 8),
+            COUNTER_DUMP_NONE_U64
+        );
+        assert_eq!(
+            read_u64(&bytes, current_function_id_offset),
+            FunctionId::new(1, 7).packed()
+        );
+        assert_eq!(
+            read_u64(&bytes, current_function_id_offset + 8),
             COUNTER_DUMP_NONE_U64
         );
         assert_eq!(read_u64(&bytes, value_offset), 11);

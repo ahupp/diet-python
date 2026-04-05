@@ -104,6 +104,7 @@ impl SharedModuleState {
                             kind: counter.kind.clone(),
                             site_kind: "block_entry".to_string(),
                             function_id: Some(*function_id),
+                            current_function_id: Some(*function_id),
                             function_qualname: function
                                 .map(|function| function.names.qualname.clone())
                                 .or_else(|| Some("<missing-function>".to_string())),
@@ -118,6 +119,7 @@ impl SharedModuleState {
                         kind: counter.kind.clone(),
                         site_kind: "runtime".to_string(),
                         function_id: *function_id,
+                        current_function_id: *function_id,
                         function_qualname: function_id.and_then(|function_id| {
                             self.lookup_function(function_id)
                                 .map(|function| function.names.qualname.clone())
@@ -551,6 +553,7 @@ def f():
         assert_eq!(row.kind, "block_entry");
         assert_eq!(row.site_kind, "block_entry");
         assert_eq!(row.function_id, Some(function_id));
+        assert_eq!(row.current_function_id, Some(function_id));
         assert_eq!(row.function_qualname.as_deref(), Some("f"));
         assert_eq!(row.block_label, Some(entry_label_text));
         assert_eq!(row.value, 3);
