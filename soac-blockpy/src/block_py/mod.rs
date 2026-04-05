@@ -34,14 +34,10 @@ pub use crate::passes::{
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     LocatedCoreBlockPyExpr,
 };
-#[cfg(test)]
-pub(crate) use traverse::{walk_block, walk_fn, walk_fragment, walk_stmt, walk_term};
 pub(crate) use traverse::{
     instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term,
     BlockPyLinearModuleVisitor, walk_linear_block, walk_linear_expr, walk_linear_stmt,
 };
-#[cfg(test)]
-pub(crate) use traverse::BlockPyModuleVisitor;
 pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 

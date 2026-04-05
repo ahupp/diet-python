@@ -555,6 +555,7 @@ mod tests {
 
     #[test]
     fn jit_runtime_clif_refcount_roundtrip_preserves_py_long_refcount() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         unsafe {
             let wrapper = build_runtime_refcount_smoke_wrapper();
             let python_home = vendored_python_home();
@@ -592,6 +593,7 @@ mod tests {
 
     #[test]
     fn jit_runtime_clif_decref_can_destroy_py_capsule() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         unsafe {
             let wrapper = build_runtime_decref_wrapper();
             let python_home = vendored_python_home();
@@ -666,6 +668,7 @@ mod tests {
 
     #[test]
     fn jit_block_entry_counter_updates_shared_state() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         unsafe {
             let python_home = vendored_python_home();
             let repo_root = repo_root();
@@ -775,6 +778,7 @@ def f():
 
     #[test]
     fn jit_function_scope_refcount_counters_track_runtime_helpers() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         unsafe {
             let python_home = vendored_python_home();
             let repo_root = repo_root();

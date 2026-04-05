@@ -536,6 +536,7 @@ mod tests {
 
     #[test]
     fn external_dict_mutation_updates_only_matching_slot() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = ffi::PyDict_New();
@@ -566,6 +567,7 @@ mod tests {
 
     #[test]
     fn write_through_store_and_delete_consume_self_watcher_events() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = ffi::PyDict_New();

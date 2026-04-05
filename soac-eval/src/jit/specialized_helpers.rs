@@ -1520,6 +1520,7 @@ mod tests {
 
     #[test]
     fn builtin_global_miss_fills_slot() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = PyDict::new(py);
@@ -1543,6 +1544,7 @@ mod tests {
 
     #[test]
     fn builtin_watcher_invalidates_unshadowed_cached_slot() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = PyDict::new(py);
@@ -1587,6 +1589,7 @@ mod tests {
 
     #[test]
     fn builtin_watcher_preserves_shadowed_cached_slot() {
+        let _guard = crate::python_runtime_test_lock().lock().unwrap();
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = PyDict::new(py);
