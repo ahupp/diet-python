@@ -257,43 +257,51 @@ fn assigned_names_in_term<E>(term: &BlockTerm<E>) -> HashSet<String>
 where
     E: ScopeExprNode + Instr,
 {
-    match term {
-        BlockTerm::Jump(_) => HashSet::new(),
-        BlockTerm::IfTerm(TermIf { test, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names(test, &mut names);
-            names
-        }
-        BlockTerm::BranchTable(TermBranchTable { index, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names(index, &mut names);
-            names
-        }
-        BlockTerm::Return(value) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names(value, &mut names);
-            names
-        }
-        BlockTerm::Raise(TermRaise { exc }) => {
-            let mut names = HashSet::new();
-            if let Some(exc) = exc {
-                collect_named_expr_target_names(exc, &mut names);
-            }
-            names
+    struct AssignedNamesVisitor<'a> {
+        names: &'a mut HashSet<String>,
+    }
+
+    impl<E> crate::block_py::BlockPyInstrVisitor<E> for AssignedNamesVisitor<'_>
+    where
+        E: ScopeExprNode + Instr,
+    {
+        fn visit_instr(&mut self, expr: &E) {
+            collect_named_expr_target_names(expr, self.names);
         }
     }
+
+    impl<E> crate::block_py::BlockPyTermVisitor<E> for AssignedNamesVisitor<'_>
+    where
+        E: ScopeExprNode + Instr,
+    {
+    }
+
+    let mut names = HashSet::new();
+    crate::block_py::walk_term(&mut AssignedNamesVisitor { names: &mut names }, term);
+    names
 }
 
 fn collect_named_expr_target_names<E>(expr: &E, names: &mut HashSet<String>)
 where
-    E: ScopeExprNode,
+    E: ScopeExprNode + Instr,
 {
+    struct NamedExprTargetVisitor<'a> {
+        names: &'a mut HashSet<String>,
+    }
+
+    impl<E> crate::block_py::BlockPyInstrVisitor<E> for NamedExprTargetVisitor<'_>
+    where
+        E: ScopeExprNode + Instr,
+    {
+        fn visit_instr(&mut self, expr: &E) {
+            collect_named_expr_target_names(expr, self.names);
+        }
+    }
+
     expr.walk_root_defined_names(&mut |name| {
         names.insert(name.to_string());
     });
-    expr.walk(&mut |child| {
-        collect_named_expr_target_names(child, names);
-    });
+    expr.visit_children(&mut NamedExprTargetVisitor { names });
 }
 
 fn core_literal_int(value: usize) -> CoreBlockPyExpr {

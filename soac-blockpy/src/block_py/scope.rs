@@ -1,8 +1,8 @@
 use super::{
-    is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, Block,
-    BlockPyFunction, BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
-    Call, CallArgPositional, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionName, RuffExpr, Walkable,
+    is_internal_symbol, walk_block, walk_expr, Block, BlockPyFunction, BlockPyBlockVisitor,
+    BlockPyFunctionVisitor, BlockPyInstrVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
+    BlockPyTermVisitor, Call, CallArgPositional, ChildVisitable, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionName, Instr, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use ruff_python_ast::{self as ast, Expr};
@@ -412,7 +412,7 @@ impl CallableScopeInfo {
     }
 }
 
-pub(crate) trait ScopeExprNode: Walkable<Self> {
+pub(crate) trait ScopeExprNode: Instr + ChildVisitable<Self> {
     fn root_name_id(&self) -> Option<&str> {
         None
     }
@@ -761,28 +761,11 @@ struct StorageLayoutScopeCollector {
     cell_ref_logical_names: HashSet<String>,
 }
 
-impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutScopeCollector
+impl<I> crate::block_py::BlockPyInstrVisitor<I> for StorageLayoutScopeCollector
 where
-    P: BlockPyPass,
-    P::Expr: ScopeExprNode,
+    I: ScopeExprNode,
 {
-    fn visit_block(&mut self, block: &Block<P::Expr, P::Expr>) {
-        if let Some(exc_param) = block.exception_param() {
-            self.used_names.insert(exc_param.to_string());
-        }
-        walk_linear_block::<Self, P>(self, block);
-    }
-
-    fn visit_stmt(&mut self, stmt: &P::Expr) {
-        stmt.walk_root_deleted_names(&mut |name| {
-            let name = name.to_string();
-            self.used_names.insert(name.clone());
-            self.deleted_names.insert(name);
-        });
-        walk_linear_stmt::<Self, P>(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &P::Expr) {
+    fn visit_instr(&mut self, expr: &I) {
         expr.walk_root_loaded_names(&mut |name| {
             self.used_names.insert(name.to_string());
         });
@@ -792,8 +775,38 @@ where
         expr.walk_root_cell_ref_logical_names(&mut |name| {
             self.cell_ref_logical_names.insert(name.to_string());
         });
-        walk_linear_expr::<Self, P>(self, expr);
+        walk_expr::<Self, I>(self, expr);
     }
+}
+
+impl<I> BlockPyTermVisitor<I> for StorageLayoutScopeCollector where I: ScopeExprNode {}
+
+impl<I> BlockPyBlockVisitor<I> for StorageLayoutScopeCollector
+where
+    I: ScopeExprNode,
+{
+    fn visit_block(&mut self, block: &Block<I, I>) {
+        if let Some(exc_param) = block.exception_param() {
+            self.used_names.insert(exc_param.to_string());
+        }
+        walk_block::<Self, I>(self, block);
+    }
+
+    fn visit_stmt(&mut self, stmt: &I) {
+        stmt.walk_root_deleted_names(&mut |name| {
+            let name = name.to_string();
+            self.used_names.insert(name.clone());
+            self.deleted_names.insert(name);
+        });
+        self.visit_instr(stmt);
+    }
+}
+
+impl<P> BlockPyFunctionVisitor<P> for StorageLayoutScopeCollector
+where
+    P: BlockPyPass,
+    P::Expr: ScopeExprNode,
+{
 }
 
 fn is_runtime_closure_name(name: &str) -> bool {
@@ -821,7 +834,7 @@ where
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
 
     let mut collector = StorageLayoutScopeCollector::default();
-    collector.visit_fn(callable_def);
+    crate::block_py::walk_fn::<StorageLayoutScopeCollector, P>(&mut collector, callable_def);
 
     let mut capture_bindings = callable_def
         .scope

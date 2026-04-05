@@ -4,8 +4,9 @@ use super::{
 };
 use crate::block_py::{
     Block, BlockLabel, BlockParam, BlockParamRole, BlockPyNameLike, BlockPyStmtBuilder, BlockTerm,
-    CallArgPositional, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen,
-    NameLocation, ResolvedStorageBlock, StructuredIf, StructuredInstr, TermIf, Walkable, WithMeta,
+    CallArgPositional, ChildVisitable, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta,
+    ModuleNameGen, NameLocation, ResolvedStorageBlock, StructuredIf, StructuredInstr, TermIf,
+    WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -72,27 +73,44 @@ fn rewrite_current_exception_in_located_term(
     term: &mut BlockTerm<LocatedCoreBlockPyExpr>,
     exc_name: &str,
 ) {
-    match term {
-        BlockTerm::IfTerm(TermIf { test, .. }) => {
-            rewrite_current_exception_in_located_expr(test, exc_name);
+    struct RewriteTermVisitor<'a> {
+        exc_name: &'a str,
+    }
+
+    impl crate::block_py::BlockPyInstrMutVisitor<LocatedCoreBlockPyExpr> for RewriteTermVisitor<'_> {
+        fn visit_instr_mut(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
+            rewrite_current_exception_in_located_expr(expr, self.exc_name);
         }
-        BlockTerm::BranchTable(branch) => {
-            rewrite_current_exception_in_located_expr(&mut branch.index, exc_name);
-        }
-        BlockTerm::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                rewrite_current_exception_in_located_expr(exc, exc_name);
+    }
+
+    impl crate::block_py::BlockPyTermMutVisitor<LocatedCoreBlockPyExpr> for RewriteTermVisitor<'_> {
+        fn visit_raise_term_mut(
+            &mut self,
+            raise_term: &mut crate::block_py::TermRaise<LocatedCoreBlockPyExpr>,
+        ) {
+            if let Some(exc) = raise_term.exc.as_mut() {
+                rewrite_current_exception_in_located_expr(exc, self.exc_name);
             } else {
-                raise_stmt.exc = Some(current_exception_name_expr_located(exc_name));
+                raise_term.exc = Some(current_exception_name_expr_located(self.exc_name));
             }
         }
-        BlockTerm::Return(value) => rewrite_current_exception_in_located_expr(value, exc_name),
-        BlockTerm::Jump(_) => {}
     }
+
+    crate::block_py::walk_term_mut(&mut RewriteTermVisitor { exc_name }, term);
 }
 
 fn rewrite_current_exception_in_located_expr(expr: &mut LocatedCoreBlockPyExpr, exc_name: &str) {
-    expr.walk_mut(&mut |arg| rewrite_current_exception_in_located_expr(arg, exc_name));
+    struct RewriteVisitor<'a> {
+        exc_name: &'a str,
+    }
+
+    impl crate::block_py::BlockPyInstrMutVisitor<LocatedCoreBlockPyExpr> for RewriteVisitor<'_> {
+        fn visit_instr_mut(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
+            rewrite_current_exception_in_located_expr(expr, self.exc_name);
+        }
+    }
+
+    expr.visit_children_mut(&mut RewriteVisitor { exc_name });
     if expr.is_current_exception_call() {
         *expr = current_exception_name_expr_located(exc_name);
     }

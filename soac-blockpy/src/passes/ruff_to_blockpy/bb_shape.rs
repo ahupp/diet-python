@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockEdge, BlockPyNameLike, BlockTerm, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr, TermIf,
-    UnresolvedName, Walkable, WithMeta,
+    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr,
+    UnresolvedName, WithMeta, ChildVisitable,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -52,7 +52,7 @@ where
 }
 
 pub(crate) trait CurrentExceptionExpr:
-    Instr + Walkable<Self> + Clone + From<Load<Self>>
+    Instr + ChildVisitable<Self> + Clone + From<Load<Self>>
 {
     fn is_current_exception_call(&self) -> bool;
 }
@@ -119,30 +119,57 @@ fn rewrite_current_exception_in_term<E>(term: &mut BlockTerm<E>, exc_name: &str)
 where
     E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
-    match term {
-        BlockTerm::IfTerm(TermIf { test, .. }) => {
-            rewrite_current_exception_in_expr(test, exc_name);
+    struct RewriteTermVisitor<'a, E> {
+        exc_name: &'a str,
+        _marker: std::marker::PhantomData<fn(E)>,
+    }
+
+    impl<E> crate::block_py::BlockPyInstrMutVisitor<E> for RewriteTermVisitor<'_, E>
+    where
+        E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
+    {
+        fn visit_instr_mut(&mut self, expr: &mut E) {
+            rewrite_current_exception_in_expr(expr, self.exc_name);
         }
-        BlockTerm::BranchTable(branch) => {
-            rewrite_current_exception_in_expr(&mut branch.index, exc_name);
-        }
-        BlockTerm::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                rewrite_current_exception_in_expr(exc, exc_name);
+    }
+
+    impl<E> crate::block_py::BlockPyTermMutVisitor<E> for RewriteTermVisitor<'_, E>
+    where
+        E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
+    {
+        fn visit_raise_term_mut(&mut self, raise_term: &mut crate::block_py::TermRaise<E>) {
+            if let Some(exc) = raise_term.exc.as_mut() {
+                rewrite_current_exception_in_expr(exc, self.exc_name);
             } else {
-                raise_stmt.exc = Some(current_exception_name_expr(exc_name));
+                raise_term.exc = Some(current_exception_name_expr(self.exc_name));
             }
         }
-        BlockTerm::Return(value) => rewrite_current_exception_in_expr(value, exc_name),
-        BlockTerm::Jump(_) => {}
     }
+
+    crate::block_py::walk_term_mut(&mut RewriteTermVisitor {
+        exc_name,
+        _marker: std::marker::PhantomData,
+    }, term);
 }
 
 fn rewrite_current_exception_in_expr<E>(expr: &mut E, exc_name: &str)
 where
     E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
-    expr.walk_mut(&mut |arg| rewrite_current_exception_in_expr(arg, exc_name));
+    struct RewriteVisitor<'a> {
+        exc_name: &'a str,
+    }
+
+    impl<E> crate::block_py::BlockPyInstrMutVisitor<E> for RewriteVisitor<'_>
+    where
+        E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
+    {
+        fn visit_instr_mut(&mut self, expr: &mut E) {
+            rewrite_current_exception_in_expr(expr, self.exc_name);
+        }
+    }
+
+    expr.visit_children_mut(&mut RewriteVisitor { exc_name });
     if expr.is_current_exception_call() {
         *expr = current_exception_name_expr(exc_name);
     }

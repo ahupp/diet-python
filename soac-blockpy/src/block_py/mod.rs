@@ -34,11 +34,16 @@ pub use crate::passes::{
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     LocatedCoreBlockPyExpr,
 };
-pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
+pub use traverse::{BlockPyInstrMutVisitor, BlockPyInstrVisitor};
+#[allow(unused_imports)]
 pub(crate) use traverse::{
-    instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term,
-    BlockPyLinearModuleVisitor, walk_linear_block, walk_linear_expr, walk_linear_stmt,
+    instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term, walk_block,
+    walk_block_mut, walk_expr, walk_expr_mut, walk_fn, walk_fn_mut, walk_module,
+    walk_module_mut, walk_stmt, walk_stmt_mut, walk_term, walk_term_mut, BlockPyBlockMutVisitor,
+    BlockPyBlockVisitor, BlockPyFunctionMutVisitor, BlockPyFunctionVisitor, BlockPyModuleMutVisitor,
+    BlockPyModuleVisitor, BlockPyTermMutVisitor, BlockPyTermVisitor,
 };
+pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -241,12 +246,17 @@ pub trait TryMapExpr<In: Instr, Out: Instr, Error> {
     fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
 }
 
-pub trait Walkable<E>: Clone + fmt::Debug + Sized {
-    fn walk_mut(&mut self, f: &mut impl FnMut(&mut E));
-    fn walk(&self, f: &mut impl FnMut(&E));
+pub trait ChildVisitable<E: Instr>: Clone + fmt::Debug + Sized {
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<E> + ?Sized;
+
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<E> + ?Sized;
 }
 
-pub trait Mappable<E>: Walkable<E> + Sized {
+pub trait Mappable<E>: Sized {
     fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self;
 
     fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
@@ -317,7 +327,7 @@ where
 impl<I, N> Mappable<I> for N
 where
     I: Instr,
-    N: Walkable<I> + InstrExprNode<I, Mapped<I> = N>,
+    N: InstrExprNode<I, Mapped<I> = N>,
 {
     fn map_walk(self, f: &mut impl FnMut(I) -> I) -> Self {
         self.map_typed_children(&mut IdentityExprMap {
@@ -333,26 +343,43 @@ impl BlockPyNameLike for ast::ExprName {
     }
 }
 
-impl Walkable<Expr> for Expr {
-    fn walk_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
-        struct DirectChildTransformer<'a, F>(&'a mut F);
+impl ChildVisitable<Expr> for Expr {
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<Expr> + ?Sized,
+    {
+        struct DirectChildVisitor<'a, V: ?Sized>(&'a mut V);
 
-        impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
+        impl<V> crate::block_py::BlockPyInstrMutVisitor<Expr> for DirectChildVisitor<'_, V>
         where
-            F: FnMut(&mut Expr),
+            V: crate::block_py::BlockPyInstrVisitor<Expr> + ?Sized,
         {
-            fn visit_expr(&mut self, expr: &mut Expr) {
-                (self.0)(expr);
+            fn visit_instr_mut(&mut self, expr: &mut Expr) {
+                self.0.visit_instr(expr);
             }
         }
 
-        let mut transformer = DirectChildTransformer(f);
-        crate::transformer::walk_expr(&mut transformer, self);
+        let mut cloned = self.clone();
+        cloned.visit_children_mut(&mut DirectChildVisitor(visitor));
     }
 
-    fn walk(&self, f: &mut impl FnMut(&Expr)) {
-        let mut cloned = self.clone();
-        cloned.walk_mut(&mut |expr| f(expr));
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<Expr> + ?Sized,
+    {
+        struct DirectChildTransformer<'a, V: ?Sized>(&'a mut V);
+
+        impl<V> crate::transformer::Transformer for DirectChildTransformer<'_, V>
+        where
+            V: crate::block_py::BlockPyInstrMutVisitor<Expr> + ?Sized,
+        {
+            fn visit_expr(&mut self, expr: &mut Expr) {
+                self.0.visit_instr_mut(expr);
+            }
+        }
+
+        let mut transformer = DirectChildTransformer(visitor);
+        crate::transformer::walk_expr(&mut transformer, self);
     }
 }
 
@@ -377,6 +404,10 @@ impl Mappable<Expr> for Expr {
 }
 
 impl Instr for Expr {
+    type Name = ast::ExprName;
+}
+
+impl Instr for RuffExpr {
     type Name = ast::ExprName;
 }
 
@@ -424,20 +455,43 @@ impl UnresolvedName {
     }
 }
 
-impl Walkable<RuffExpr> for RuffExpr {
-    fn walk_mut(&mut self, f: &mut impl FnMut(&mut RuffExpr)) {
-        self.0.walk_mut(&mut |expr| {
-            let mut wrapped = RuffExpr(expr.clone());
-            f(&mut wrapped);
-            *expr = wrapped.0;
-        });
+impl ChildVisitable<RuffExpr> for RuffExpr {
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<RuffExpr> + ?Sized,
+    {
+        struct RuffChildVisitor<'a, V: ?Sized>(&'a mut V);
+
+        impl<V> crate::block_py::BlockPyInstrVisitor<Expr> for RuffChildVisitor<'_, V>
+        where
+            V: crate::block_py::BlockPyInstrVisitor<RuffExpr> + ?Sized,
+        {
+            fn visit_instr(&mut self, expr: &Expr) {
+                self.0.visit_instr(&RuffExpr(expr.clone()));
+            }
+        }
+
+        self.0.visit_children(&mut RuffChildVisitor(visitor));
     }
 
-    fn walk(&self, f: &mut impl FnMut(&RuffExpr)) {
-        self.0.walk(&mut |expr| {
-            let wrapped = RuffExpr(expr.clone());
-            f(&wrapped);
-        });
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<RuffExpr> + ?Sized,
+    {
+        struct RuffChildVisitor<'a, V: ?Sized>(&'a mut V);
+
+        impl<V> crate::block_py::BlockPyInstrMutVisitor<Expr> for RuffChildVisitor<'_, V>
+        where
+            V: crate::block_py::BlockPyInstrMutVisitor<RuffExpr> + ?Sized,
+        {
+            fn visit_instr_mut(&mut self, expr: &mut Expr) {
+                let mut wrapped = RuffExpr(expr.clone());
+                self.0.visit_instr_mut(&mut wrapped);
+                *expr = wrapped.0;
+            }
+        }
+
+        self.0.visit_children_mut(&mut RuffChildVisitor(visitor));
     }
 }
 
@@ -649,7 +703,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Mappable, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, ChildVisitable, Mappable, Debug)]
 pub enum CodegenBlockPyExpr {
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),

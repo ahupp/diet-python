@@ -62,17 +62,26 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty: Instr> Walkable<$expr_ty> for $name<$expr_ty> {
-            fn walk_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
+        impl<$expr_ty> ChildVisitable<$expr_ty> for $name<$expr_ty>
+        where
+            $expr_ty: Instr + ChildVisitable<$expr_ty>,
+        {
+            fn visit_children<V>(&self, visitor: &mut V)
+            where
+                V: crate::block_py::BlockPyInstrVisitor<$expr_ty> + ?Sized,
+            {
                 #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
+                let _ = &visitor;
+                define_operation!(@visit_expr_fields self, visitor, $($raw_fields)*);
             }
 
-            fn walk(&self, f: &mut impl FnMut(&$expr_ty)) {
+            fn visit_children_mut<V>(&mut self, visitor: &mut V)
+            where
+                V: crate::block_py::BlockPyInstrMutVisitor<$expr_ty> + ?Sized,
+            {
                 #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
+                let _ = &visitor;
+                define_operation!(@visit_expr_fields_mut self, visitor, $($raw_fields)*);
             }
         }
 
@@ -164,13 +173,19 @@ macro_rules! define_operation {
             }
         }
 
-        impl<E: Instr> Walkable<E> for $name {
-            fn walk_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-                let _ = &f;
+        impl<E: Instr> ChildVisitable<E> for $name {
+            fn visit_children<V>(&self, visitor: &mut V)
+            where
+                V: crate::block_py::BlockPyInstrVisitor<E> + ?Sized,
+            {
+                let _ = &visitor;
             }
 
-            fn walk(&self, f: &mut impl FnMut(&E)) {
-                let _ = &f;
+            fn visit_children_mut<V>(&mut self, visitor: &mut V)
+            where
+                V: crate::block_py::BlockPyInstrMutVisitor<E> + ?Sized,
+            {
+                let _ = &visitor;
             }
         }
 
@@ -333,30 +348,30 @@ macro_rules! define_operation {
             [$($ctor_init)* $field: $field.into(),]
         );
     };
-    (@visit_expr_fields $self:ident, $f:ident,) => {};
-    (@visit_expr_fields $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
-        $f(&$self.$field);
-        define_operation!(@visit_expr_fields $self, $f, $($rest)*);
+    (@visit_expr_fields $self:ident, $visitor:ident,) => {};
+    (@visit_expr_fields $self:ident, $visitor:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $visitor.visit_instr(&$self.$field);
+        define_operation!(@visit_expr_fields $self, $visitor, $($rest)*);
     };
-    (@visit_expr_fields $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
-        $f(&$self.$field);
+    (@visit_expr_fields $self:ident, $visitor:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $visitor.visit_instr(&$self.$field);
     };
-    (@visit_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
-        define_operation!(@visit_expr_fields $self, $f, $($rest)*);
+    (@visit_expr_fields $self:ident, $visitor:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(@visit_expr_fields $self, $visitor, $($rest)*);
     };
-    (@visit_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty) => {};
-    (@visit_expr_fields_mut $self:ident, $f:ident,) => {};
-    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
-        $f(&mut $self.$field);
-        define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
+    (@visit_expr_fields $self:ident, $visitor:ident, $field:ident : $ty:ty) => {};
+    (@visit_expr_fields_mut $self:ident, $visitor:ident,) => {};
+    (@visit_expr_fields_mut $self:ident, $visitor:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $visitor.visit_instr_mut(&mut $self.$field);
+        define_operation!(@visit_expr_fields_mut $self, $visitor, $($rest)*);
     };
-    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
-        $f(&mut $self.$field);
+    (@visit_expr_fields_mut $self:ident, $visitor:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $visitor.visit_instr_mut(&mut $self.$field);
     };
-    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
-        define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
+    (@visit_expr_fields_mut $self:ident, $visitor:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(@visit_expr_fields_mut $self, $visitor, $($rest)*);
     };
-    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty) => {};
+    (@visit_expr_fields_mut $self:ident, $visitor:ident, $field:ident : $ty:ty) => {};
     (@debug_tuple_fields $builder:ident, $self:ident,) => {};
     (@debug_tuple_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
         $builder.field(&$self.$field);

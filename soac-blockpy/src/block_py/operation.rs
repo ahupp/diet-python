@@ -1,7 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
-    BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, FunctionId, FunctionKind,
-    HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable, WithMeta,
+    BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, ChildVisitable, FunctionId,
+    FunctionKind, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, WithMeta,
 };
 use std::fmt;
 
@@ -131,24 +131,33 @@ impl<E> WithMeta for Call<E> {
     }
 }
 
-impl<E: Instr> Walkable<E> for Call<E> {
-    fn walk_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        f(&mut self.func);
+impl<E> ChildVisitable<E> for Call<E>
+where
+    E: Instr + ChildVisitable<E>,
+{
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<E> + ?Sized,
+    {
+        visitor.visit_instr_mut(&mut self.func);
         for arg in &mut self.args {
-            f(arg.expr_mut());
+            visitor.visit_instr_mut(arg.expr_mut());
         }
         for keyword in &mut self.keywords {
-            f(keyword.expr_mut());
+            visitor.visit_instr_mut(keyword.expr_mut());
         }
     }
 
-    fn walk(&self, f: &mut impl FnMut(&E)) {
-        f(&self.func);
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<E> + ?Sized,
+    {
+        visitor.visit_instr(&self.func);
         for arg in &self.args {
-            f(arg.expr());
+            visitor.visit_instr(arg.expr());
         }
         for keyword in &self.keywords {
-            f(keyword.expr());
+            visitor.visit_instr(keyword.expr());
         }
     }
 }
@@ -270,10 +279,21 @@ impl<I: Instr> WithMeta for Load<I> {
     }
 }
 
-impl<I: Instr> Walkable<I> for Load<I> {
-    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+impl<I> ChildVisitable<I> for Load<I>
+where
+    I: Instr + ChildVisitable<I>,
+{
+    fn visit_children<V>(&self, _visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<I> + ?Sized,
+    {
+    }
 
-    fn walk(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children_mut<V>(&mut self, _visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<I> + ?Sized,
+    {
+    }
 }
 
 impl<I: Instr> InstrExprNode<I> for Load<I> {
@@ -347,13 +367,22 @@ impl<I: Instr> WithMeta for Store<I> {
     }
 }
 
-impl<I: Instr> Walkable<I> for Store<I> {
-    fn walk_mut(&mut self, f: &mut impl FnMut(&mut I)) {
-        f(&mut self.value);
+impl<I> ChildVisitable<I> for Store<I>
+where
+    I: Instr + ChildVisitable<I>,
+{
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<I> + ?Sized,
+    {
+        visitor.visit_instr_mut(&mut self.value);
     }
 
-    fn walk(&self, f: &mut impl FnMut(&I)) {
-        f(&self.value);
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<I> + ?Sized,
+    {
+        visitor.visit_instr(&self.value);
     }
 }
 
@@ -424,10 +453,21 @@ impl<I: Instr> WithMeta for Del<I> {
     }
 }
 
-impl<I: Instr> Walkable<I> for Del<I> {
-    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+impl<I> ChildVisitable<I> for Del<I>
+where
+    I: Instr + ChildVisitable<I>,
+{
+    fn visit_children<V>(&self, _visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrVisitor<I> + ?Sized,
+    {
+    }
 
-    fn walk(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children_mut<V>(&mut self, _visitor: &mut V)
+    where
+        V: crate::block_py::BlockPyInstrMutVisitor<I> + ?Sized,
+    {
+    }
 }
 
 impl<I: Instr> InstrExprNode<I> for Del<I> {

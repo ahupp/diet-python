@@ -45,7 +45,7 @@ fn item_enum_variants(input: &ItemEnum) -> syn::Result<Vec<&syn::Variant>> {
 enum EnumBroadcastTarget {
     HasMeta,
     WithMeta,
-    Walkable,
+    ChildVisitable,
     Mappable,
     Debug,
 }
@@ -59,12 +59,12 @@ impl EnumBroadcastTarget {
         match segment.ident.to_string().as_str() {
             "HasMeta" => Ok(Self::HasMeta),
             "WithMeta" => Ok(Self::WithMeta),
-            "Walkable" => Ok(Self::Walkable),
+            "ChildVisitable" => Ok(Self::ChildVisitable),
             "Mappable" => Ok(Self::Mappable),
             "Debug" => Ok(Self::Debug),
             _ => Err(syn::Error::new_spanned(
                 segment,
-                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, Walkable, Mappable, and Debug",
+                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, ChildVisitable, Mappable, and Debug",
             )),
         }
     }
@@ -97,13 +97,13 @@ impl EnumBroadcastTarget {
         let walk_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => node.walk(&mut *f),
+                Self::#variant_name(node) => node.visit_children(&mut *visitor),
             }
         });
         let walk_mut_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => node.walk_mut(&mut *f),
+                Self::#variant_name(node) => node.visit_children_mut(&mut *visitor),
             }
         });
         let debug_arms = variants.iter().map(|variant| {
@@ -146,15 +146,21 @@ impl EnumBroadcastTarget {
                     }
                 }
             },
-            Self::Walkable => quote! {
-                impl #impl_generics Walkable<Self> for #enum_name #ty_generics #where_clause {
-                    fn walk(&self, f: &mut impl FnMut(&Self)) {
+            Self::ChildVisitable => quote! {
+                impl #impl_generics ChildVisitable<Self> for #enum_name #ty_generics #where_clause {
+                    fn visit_children<V>(&self, visitor: &mut V)
+                    where
+                        V: crate::block_py::BlockPyInstrVisitor<Self> + ?Sized,
+                    {
                         match self {
                             #( #walk_arms )*
                         }
                     }
 
-                    fn walk_mut(&mut self, f: &mut impl FnMut(&mut Self)) {
+                    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+                    where
+                        V: crate::block_py::BlockPyInstrMutVisitor<Self> + ?Sized,
+                    {
                         match self {
                             #( #walk_mut_arms )*
                         }

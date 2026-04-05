@@ -8,7 +8,7 @@ use crate::block_py::{
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
     MakeCell, MakeFunction, MapExpr, Mappable, NameLocation, SetItem, StorageLayout, Store,
-    TermRaise, UnresolvedName, Walkable, WithMeta,
+    UnresolvedName, WithMeta, ChildVisitable,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -338,18 +338,41 @@ fn with_helper_arg_mut_in_operation<N: BlockPyNameLike + Clone, T>(
 ) -> bool
 where
     T: crate::block_py::InstrExprNode<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>
-        + crate::block_py::Walkable<CoreBlockPyExpr<N>>,
+        + crate::block_py::ChildVisitable<CoreBlockPyExpr<N>>,
 {
-    let mut current = 0;
-    let mut applied = false;
-    operation.walk_mut(&mut |arg| {
-        if current == index && !applied {
-            f(arg);
-            applied = true;
+    let current = 0;
+    let applied = false;
+    struct IndexedArgMutVisitor<'a, N: BlockPyNameLike, F> {
+        current: usize,
+        index: usize,
+        applied: bool,
+        f: &'a mut F,
+        _marker: std::marker::PhantomData<fn(CoreBlockPyExpr<N>)>,
+    }
+
+    impl<N, F> crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr<N>> for IndexedArgMutVisitor<'_, N, F>
+    where
+        N: BlockPyNameLike + Clone,
+        F: FnMut(&mut CoreBlockPyExpr<N>),
+    {
+        fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr<N>) {
+            if self.current == self.index && !self.applied {
+                (self.f)(expr);
+                self.applied = true;
+            }
+            self.current += 1;
         }
-        current += 1;
-    });
-    applied
+    }
+
+    let mut visitor = IndexedArgMutVisitor {
+        current,
+        index,
+        applied,
+        f,
+        _marker: std::marker::PhantomData,
+    };
+    operation.visit_children_mut(&mut visitor);
+    visitor.applied
 }
 
 fn rewrite_deleted_name_loads_in_expr(
@@ -432,16 +455,36 @@ fn rewrite_deleted_name_loads_in_expr(
         | CoreBlockPyExpr::SetItem(_)
         | CoreBlockPyExpr::DelItem(_)
         | CoreBlockPyExpr::MakeCell(_)
-        | CoreBlockPyExpr::MakeFunction(_) => expr.walk_mut(&mut |arg| {
-            rewrite_deleted_name_loads_in_expr(
-                arg,
+        | CoreBlockPyExpr::MakeFunction(_) => {
+            struct RewriteVisitor<'a> {
+                scope: &'a CallableScopeInfo,
+                storage_layout: &'a StorageLayout,
+                resolver: &'a NameBindingMapper<'a>,
+                deleted_names: &'a HashSet<String>,
+                always_unbound_names: &'a HashSet<String>,
+            }
+
+            impl crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr> for RewriteVisitor<'_> {
+                fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr) {
+                    rewrite_deleted_name_loads_in_expr(
+                        expr,
+                        self.scope,
+                        self.storage_layout,
+                        self.resolver,
+                        self.deleted_names,
+                        self.always_unbound_names,
+                    );
+                }
+            }
+
+            expr.visit_children_mut(&mut RewriteVisitor {
                 scope,
                 storage_layout,
                 resolver,
                 deleted_names,
                 always_unbound_names,
-            )
-        }),
+            });
+        }
         CoreBlockPyExpr::Store(_) => {
             with_helper_arg_mut(expr, 1, &mut |value_expr| {
                 rewrite_deleted_name_loads_in_expr(
@@ -1137,49 +1180,39 @@ fn rewrite_deleted_name_loads_in_term(
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
-    match term {
-        BlockTerm::Jump(_) => {}
-        BlockTerm::IfTerm(if_term) => {
+    struct RewriteTermVisitor<'a> {
+        scope: &'a CallableScopeInfo,
+        storage_layout: &'a StorageLayout,
+        resolver: &'a NameBindingMapper<'a>,
+        deleted_names: &'a HashSet<String>,
+        always_unbound_names: &'a HashSet<String>,
+    }
+
+    impl crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr> for RewriteTermVisitor<'_> {
+        fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr) {
             rewrite_deleted_name_loads_in_expr(
-                &mut if_term.test,
-                scope,
-                storage_layout,
-                resolver,
-                deleted_names,
-                always_unbound_names,
+                expr,
+                self.scope,
+                self.storage_layout,
+                self.resolver,
+                self.deleted_names,
+                self.always_unbound_names,
             );
         }
-        BlockTerm::BranchTable(branch) => {
-            rewrite_deleted_name_loads_in_expr(
-                &mut branch.index,
-                scope,
-                storage_layout,
-                resolver,
-                deleted_names,
-                always_unbound_names,
-            );
-        }
-        BlockTerm::Raise(TermRaise { exc }) => {
-            if let Some(exc) = exc {
-                rewrite_deleted_name_loads_in_expr(
-                    exc,
-                    scope,
-                    storage_layout,
-                    resolver,
-                    deleted_names,
-                    always_unbound_names,
-                );
-            }
-        }
-        BlockTerm::Return(value) => rewrite_deleted_name_loads_in_expr(
-            value,
+    }
+
+    impl crate::block_py::BlockPyTermMutVisitor<CoreBlockPyExpr> for RewriteTermVisitor<'_> {}
+
+    crate::block_py::walk_term_mut(
+        &mut RewriteTermVisitor {
             scope,
             storage_layout,
             resolver,
             deleted_names,
             always_unbound_names,
-        ),
-    }
+        },
+        term,
+    );
 }
 
 fn rewrite_raw_cell_loads_in_expr(
@@ -1204,7 +1237,18 @@ fn rewrite_raw_cell_loads_in_expr(
                 }
                 return;
             }
-            call.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, scope, resolver));
+            struct RewriteVisitor<'a> {
+                scope: &'a CallableScopeInfo,
+                resolver: &'a NameBindingMapper<'a>,
+            }
+
+            impl crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr> for RewriteVisitor<'_> {
+                fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr) {
+                    rewrite_raw_cell_loads_in_expr(expr, self.scope, self.resolver);
+                }
+            }
+
+            call.visit_children_mut(&mut RewriteVisitor { scope, resolver });
         }
         CoreBlockPyExpr::BinOp(_)
         | CoreBlockPyExpr::UnaryOp(_)
@@ -1231,7 +1275,18 @@ fn rewrite_raw_cell_loads_in_expr(
                     }
                 }
             }
-            expr.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, scope, resolver));
+            struct RewriteVisitor<'a> {
+                scope: &'a CallableScopeInfo,
+                resolver: &'a NameBindingMapper<'a>,
+            }
+
+            impl crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr> for RewriteVisitor<'_> {
+                fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr) {
+                    rewrite_raw_cell_loads_in_expr(expr, self.scope, self.resolver);
+                }
+            }
+
+            expr.visit_children_mut(&mut RewriteVisitor { scope, resolver });
         }
         CoreBlockPyExpr::Literal(_) => {}
     }
@@ -1260,21 +1315,20 @@ fn rewrite_raw_cell_loads_in_term(
     scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
-    match term {
-        BlockTerm::Jump(_) => {}
-        BlockTerm::IfTerm(if_term) => {
-            rewrite_raw_cell_loads_in_expr(&mut if_term.test, scope, resolver);
-        }
-        BlockTerm::BranchTable(branch) => {
-            rewrite_raw_cell_loads_in_expr(&mut branch.index, scope, resolver);
-        }
-        BlockTerm::Raise(TermRaise { exc }) => {
-            if let Some(exc) = exc {
-                rewrite_raw_cell_loads_in_expr(exc, scope, resolver);
-            }
-        }
-        BlockTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, scope, resolver),
+    struct RewriteTermVisitor<'a> {
+        scope: &'a CallableScopeInfo,
+        resolver: &'a NameBindingMapper<'a>,
     }
+
+    impl crate::block_py::BlockPyInstrMutVisitor<CoreBlockPyExpr> for RewriteTermVisitor<'_> {
+        fn visit_instr_mut(&mut self, expr: &mut CoreBlockPyExpr) {
+            rewrite_raw_cell_loads_in_expr(expr, self.scope, self.resolver);
+        }
+    }
+
+    impl crate::block_py::BlockPyTermMutVisitor<CoreBlockPyExpr> for RewriteTermVisitor<'_> {}
+
+    crate::block_py::walk_term_mut(&mut RewriteTermVisitor { scope, resolver }, term);
 }
 
 fn normal_successor_labels(term: &BlockTerm<CoreBlockPyExpr>) -> Vec<&crate::block_py::BlockLabel> {
@@ -1437,7 +1491,17 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
         | CoreBlockPyExpr::MakeFunction(_) => {}
     }
 
-    expr.walk(&mut |arg| collect_remaining_names_in_expr(arg, names));
+    struct RemainingNamesVisitor<'a> {
+        names: &'a mut HashSet<String>,
+    }
+
+    impl crate::block_py::BlockPyInstrVisitor<CoreBlockPyExpr> for RemainingNamesVisitor<'_> {
+        fn visit_instr(&mut self, expr: &CoreBlockPyExpr) {
+            collect_remaining_names_in_expr(expr, self.names);
+        }
+    }
+
+    expr.visit_children(&mut RemainingNamesVisitor { names });
 }
 
 fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>) {
@@ -1445,23 +1509,25 @@ fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>)
 }
 
 fn collect_remaining_names_in_term(term: &BlockTerm<CoreBlockPyExpr>, names: &mut HashSet<String>) {
-    match term {
-        BlockTerm::Jump(edge) => {
-            for arg in &edge.args {
-                if let crate::block_py::BlockArg::Name(name) = arg {
-                    names.insert(name.clone());
-                }
-            }
-        }
-        BlockTerm::IfTerm(if_term) => collect_remaining_names_in_expr(&if_term.test, names),
-        BlockTerm::BranchTable(branch) => collect_remaining_names_in_expr(&branch.index, names),
-        BlockTerm::Raise(TermRaise { exc }) => {
-            if let Some(exc) = exc {
-                collect_remaining_names_in_expr(exc, names);
-            }
-        }
-        BlockTerm::Return(value) => collect_remaining_names_in_expr(value, names),
+    struct RemainingNamesVisitor<'a> {
+        names: &'a mut HashSet<String>,
     }
+
+    impl crate::block_py::BlockPyInstrVisitor<CoreBlockPyExpr> for RemainingNamesVisitor<'_> {
+        fn visit_instr(&mut self, expr: &CoreBlockPyExpr) {
+            collect_remaining_names_in_expr(expr, self.names);
+        }
+    }
+
+    impl crate::block_py::BlockPyTermVisitor<CoreBlockPyExpr> for RemainingNamesVisitor<'_> {
+        fn visit_block_arg(&mut self, arg: &BlockArg) {
+            if let BlockArg::Name(name) = arg {
+                self.names.insert(name.clone());
+            }
+        }
+    }
+
+    crate::block_py::walk_term(&mut RemainingNamesVisitor { names }, term);
 }
 
 fn resolve_cell_storage_name(scope: &CallableScopeInfo, name: &str) -> Option<String> {
@@ -2076,7 +2142,17 @@ fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Ve
             out.push(op.function_id);
         }
         _ => {
-            expr.walk(&mut |arg| collect_make_function_callee_ids_in_expr(arg, out));
+            struct CalleeVisitor<'a> {
+                out: &'a mut Vec<FunctionId>,
+            }
+
+            impl crate::block_py::BlockPyInstrVisitor<CoreBlockPyExpr> for CalleeVisitor<'_> {
+                fn visit_instr(&mut self, expr: &CoreBlockPyExpr) {
+                    collect_make_function_callee_ids_in_expr(expr, self.out);
+                }
+            }
+
+            expr.visit_children(&mut CalleeVisitor { out });
         }
     }
 }
@@ -2104,19 +2180,19 @@ fn collect_make_function_callee_ids_in_term(
     term: &BlockTerm<CoreBlockPyExpr>,
     out: &mut Vec<FunctionId>,
 ) {
-    match term {
-        BlockTerm::Jump(_) => {}
-        BlockTerm::IfTerm(if_term) => collect_make_function_callee_ids_in_expr(&if_term.test, out),
-        BlockTerm::BranchTable(branch) => {
-            collect_make_function_callee_ids_in_expr(&branch.index, out)
-        }
-        BlockTerm::Raise(raise_stmt) => {
-            if let Some(exc) = &raise_stmt.exc {
-                collect_make_function_callee_ids_in_expr(exc, out);
-            }
-        }
-        BlockTerm::Return(expr) => collect_make_function_callee_ids_in_expr(expr, out),
+    struct CalleeVisitor<'a> {
+        out: &'a mut Vec<FunctionId>,
     }
+
+    impl crate::block_py::BlockPyInstrVisitor<CoreBlockPyExpr> for CalleeVisitor<'_> {
+        fn visit_instr(&mut self, expr: &CoreBlockPyExpr) {
+            collect_make_function_callee_ids_in_expr(expr, self.out);
+        }
+    }
+
+    impl crate::block_py::BlockPyTermVisitor<CoreBlockPyExpr> for CalleeVisitor<'_> {}
+
+    crate::block_py::walk_term(&mut CalleeVisitor { out }, term);
 }
 
 fn compute_callable_storage_layout_for_name_binding(
@@ -2617,17 +2693,7 @@ impl ModuleConstantExtractor {
     }
 
     fn extract_term(&mut self, term: &mut BlockTerm<LocatedCoreBlockPyExpr>) {
-        match term {
-            BlockTerm::Jump(_) => {}
-            BlockTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
-            BlockTerm::BranchTable(branch) => self.extract_expr(&mut branch.index),
-            BlockTerm::Raise(raise_stmt) => {
-                if let Some(exc) = &mut raise_stmt.exc {
-                    self.extract_expr(exc);
-                }
-            }
-            BlockTerm::Return(value) => self.extract_expr(value),
-        }
+        crate::block_py::walk_term_mut(self, term);
     }
 
     fn extract_expr(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
@@ -2642,10 +2708,18 @@ impl ModuleConstantExtractor {
             return;
         }
         if !matches!(expr, CoreBlockPyExpr::Literal(_)) {
-            expr.walk_mut(&mut |child| self.extract_expr(child));
+            expr.visit_children_mut(self);
         }
     }
 }
+
+impl crate::block_py::BlockPyInstrMutVisitor<LocatedCoreBlockPyExpr> for ModuleConstantExtractor {
+    fn visit_instr_mut(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
+        self.extract_expr(expr);
+    }
+}
+
+impl crate::block_py::BlockPyTermMutVisitor<LocatedCoreBlockPyExpr> for ModuleConstantExtractor {}
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,

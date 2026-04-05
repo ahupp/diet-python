@@ -13,13 +13,13 @@ use crate::block_py::{cfg::relabel_blockpy_blocks_dense, BlockPyModule};
 use crate::block_py::{
     Await, BinOp, BlockPyNameLike, BlockPyPass, Call, CellRef, CellRefForName, CodegenBlockPyExpr,
     Del, DelItem, GetAttr, GetItem, HasMeta, LiteralValue, Load, LocatedName, MakeCell,
-    MakeFunction, Mappable, Meta, SetAttr, SetItem, Store, UnaryOp, UnresolvedName, Walkable,
-    WithMeta, Yield, YieldFrom,
+    MakeFunction, Mappable, Meta, SetAttr, SetItem, Store, UnaryOp, UnresolvedName,
+    ChildVisitable, WithMeta, Yield, YieldFrom,
 };
 use soac_macros::{enum_broadcast, DelegateMatchDefault};
 
 #[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Mappable, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, ChildVisitable, Mappable, Debug)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -43,7 +43,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 }
 
 #[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Mappable, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, ChildVisitable, Mappable, Debug)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -66,7 +66,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Mappable, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, ChildVisitable, Mappable, Debug)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
