@@ -2,7 +2,8 @@ use crate::block_py::{
     BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, LiteralValue, Load,
     LocatedCoreBlockPyExpr, LocatedName, MapFunction, MapInstr, Mappable, NameLocation, WithMeta,
 };
-use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
+use crate::passes::{CodegenBlockPyPass, CoreBlockPyExpr, ResolvedStorageBlockPyPass};
+use soac_macros::match_default;
 
 pub fn normalize_bb_module_strings(
     module: &BlockPyModule<ResolvedStorageBlockPyPass>,
@@ -42,7 +43,7 @@ impl CodegenExprNormalizer {
 
 impl MapInstr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormalizer {
     fn map_instr(&mut self, expr: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
-        match expr {
+        match_default!(expr: crate::passes::CoreBlockPyExpr<LocatedName> {
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();
                 let constant_index = self.push_module_constant(literal);
@@ -52,28 +53,16 @@ impl MapInstr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormali
                 })
                 .with_meta(meta)
                 .into()
-            }
-            LocatedCoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::Call(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::Load(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::Store(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::Del(node) => node.map_children(self).into(),
-            LocatedCoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
+            },
             LocatedCoreBlockPyExpr::CellRefForName(node) => {
                 panic!(
                     "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
                     node.logical_name
                 );
-            }
+            },
             LocatedCoreBlockPyExpr::CellRef(node) => node.into(),
-            LocatedCoreBlockPyExpr::MakeFunction(node) => node.map_children(self).into(),
-        }
+            rest => rest.map_children(self).into(),
+        })
     }
 
     fn map_name(&mut self, name: LocatedName) -> LocatedName {

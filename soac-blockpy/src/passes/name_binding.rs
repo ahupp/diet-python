@@ -1086,7 +1086,7 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                     .into()
             },
             CoreBlockPyExpr::Call(call) => call.map_same_children(self).into(),
-            rest => rest.map_same_children(self).into(),
+            rest => rest.map_children(self).into(),
         })
     }
 
@@ -2027,7 +2027,7 @@ impl NameLocator<'_> {
 
 impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> {
     fn map_instr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
-        match expr {
+        match_default!(expr: crate::passes::CoreBlockPyExpr {
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
             CoreBlockPyExpr::Load(op) => {
                 let meta = op.meta();
@@ -2038,7 +2038,7 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
                     self.mark_raw_cell_name(name)
                 };
                 Load::new(name).with_meta(meta).into()
-            }
+            },
             CoreBlockPyExpr::Store(op) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
@@ -2049,7 +2049,7 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
                 };
                 let value = self.map_instr(*op.value);
                 Store::new(name, Box::new(value)).with_meta(meta).into()
-            }
+            },
             CoreBlockPyExpr::Del(op) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
@@ -2059,12 +2059,12 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
                     self.mark_raw_cell_store_name(name)
                 };
                 Del::new(name, op.quietly).with_meta(meta).into()
-            }
+            },
             CoreBlockPyExpr::CellRefForName(op) => {
                 let meta = op.meta();
                 let location = self.resolve_cell_ref_location(op.logical_name.as_str());
                 CellRef::new(location).with_meta(meta).into()
-            }
+            },
             CoreBlockPyExpr::Call(call) => {
                 let meta = call.meta();
                 let call = call.map_children(self);
@@ -2084,18 +2084,10 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_>
                     }
                 }
                 call.with_meta(meta).into()
-            }
-            CoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
+            },
             CoreBlockPyExpr::CellRef(node) => node.into(),
-            CoreBlockPyExpr::MakeFunction(node) => node.map_children(self).into(),
-        }
+            rest => rest.map_children(self).into(),
+        })
     }
 
     fn map_name(&mut self, name: UnresolvedName) -> LocatedName {
