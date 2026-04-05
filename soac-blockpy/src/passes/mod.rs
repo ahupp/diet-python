@@ -4,7 +4,6 @@ pub(crate) mod blockpy_expr_simplify;
 mod blockpy_generators;
 pub mod blockpy_to_bb;
 pub(crate) mod core_await_lower;
-pub(crate) mod core_eval_order;
 mod instrument;
 mod instr_id;
 mod name_binding;

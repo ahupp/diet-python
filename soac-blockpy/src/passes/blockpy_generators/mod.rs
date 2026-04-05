@@ -1,4 +1,6 @@
-use super::core_eval_order::make_eval_order_explicit_in_core_callable_def;
+mod core_eval_order;
+
+use self::core_eval_order::make_eval_order_explicit_in_core_callable_def;
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
