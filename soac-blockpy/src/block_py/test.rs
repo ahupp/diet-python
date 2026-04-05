@@ -35,6 +35,30 @@ fn cfg_block_from_fragment_without_term_uses_implicit_none_return_value() {
 }
 
 #[test]
+fn block_label_fallthrough_is_distinct() {
+    assert!(BlockLabel::fallthrough().is_fallthrough());
+    assert_eq!(BlockLabel::fallthrough().to_string(), "<fallthrough>");
+    assert_ne!(BlockLabel::fallthrough(), BlockLabel::from_index(0));
+}
+
+#[test]
+fn cfg_block_can_replace_fallthrough_target() {
+    let mut block = Block::new(
+        BlockLabel::from_index(0),
+        Vec::<Expr>::new(),
+        BlockTerm::<Expr>::Jump(crate::block_py::BlockEdge::new(BlockLabel::fallthrough())),
+        Vec::new(),
+        None,
+    );
+
+    assert!(block.replace_fallthrough_target(BlockLabel::from_index(7)));
+    let BlockTerm::Jump(edge) = &block.term else {
+        panic!("expected jump term");
+    };
+    assert_eq!(edge.target, BlockLabel::from_index(7));
+}
+
+#[test]
 fn stmt_fragment_can_carry_optional_term() {
     let fragment: BlockBuilder<StructuredInstr<Expr>, BlockTerm<Expr>> = BlockBuilder::with_term(
         vec![StructuredInstr::Expr(py_expr!("x"))],

@@ -52,10 +52,22 @@ pub struct BlockLabel {
 }
 
 impl BlockLabel {
+    pub const FALLTHROUGH_INDEX: u32 = u32::MAX;
+
     pub fn from_index(value: usize) -> Self {
         Self {
             index: u32::try_from(value).expect("block label usize should fit in u32"),
         }
+    }
+
+    pub const fn fallthrough() -> Self {
+        Self {
+            index: Self::FALLTHROUGH_INDEX,
+        }
+    }
+
+    pub const fn is_fallthrough(self) -> bool {
+        self.index == Self::FALLTHROUGH_INDEX
     }
 
     pub const fn as_u32(self) -> u32 {
@@ -69,7 +81,11 @@ impl BlockLabel {
 
 impl fmt::Display for BlockLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bb{}", self.index)
+        if self.is_fallthrough() {
+            write!(f, "<fallthrough>")
+        } else {
+            write!(f, "bb{}", self.index)
+        }
     }
 }
 

@@ -1,9 +1,9 @@
 use crate::block_py::{
     core_call_expr_with_meta, literal_expr, BlockPyFunction, BlockPyModule, CallArgPositional,
-    CodegenBlockPyExpr, CoreStringLiteral, CounterDef, CounterId, CounterScope, CounterSite,
-    IncrementCounter, Load, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
+    CodegenBlockPyExpr, CoreStringLiteral, CounterScope, CounterSite, IncrementCounter, Load,
+    LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
 };
-use crate::passes::CodegenBlockPyPass;
+use crate::passes::{CodegenBlockPyPass, CounterBuilder};
 use std::collections::HashMap;
 use std::env;
 
@@ -89,20 +89,19 @@ pub(crate) fn instrument_bb_module_for_trace(
 pub fn instrument_bb_module_with_block_entry_counters(
     module: &mut BlockPyModule<CodegenBlockPyPass>,
 ) {
-    let mut next_counter_id = module.counter_defs.len();
+    let mut counters = CounterBuilder::new(&mut module.counter_defs);
     for function in &mut module.callable_defs {
         for block in &mut function.blocks {
-            let counter_id = CounterId(next_counter_id);
-            next_counter_id += 1;
-            module.counter_defs.push(CounterDef {
-                id: counter_id,
-                scope: CounterScope::This,
-                kind: "block_entry".to_string(),
-                site: CounterSite::BlockEntry {
-                    function_id: function.function_id,
-                    block_label: block.label,
-                },
-            });
+            let counter_id = counters
+                .define(
+                    CounterScope::This,
+                    "block_entry",
+                    CounterSite::BlockEntry {
+                        function_id: function.function_id,
+                        block_label: block.label,
+                    },
+                )
+                .id();
             block.body.insert(
                 0,
                 CodegenBlockPyExpr::from(
@@ -117,6 +116,7 @@ pub fn instrument_bb_module_with_refcount_counters(
     module: &mut BlockPyModule<CodegenBlockPyPass>,
     scope: CounterScope,
 ) -> Result<(), String> {
+    let mut counters = CounterBuilder::new(&mut module.counter_defs);
     match scope {
         CounterScope::This => {
             return Err(
@@ -125,7 +125,6 @@ pub fn instrument_bb_module_with_refcount_counters(
             );
         }
         CounterScope::Function => {
-            let mut next_counter_id = module.counter_defs.len();
             let function_ids = module
                 .callable_defs
                 .iter()
@@ -133,46 +132,27 @@ pub fn instrument_bb_module_with_refcount_counters(
                 .collect::<Vec<_>>();
             for function_id in function_ids {
                 for kind in ["runtime_incref", "runtime_decref"] {
-                    let site = CounterSite::Runtime {
-                        function_id: Some(function_id),
-                        instr_id: None,
-                    };
-                    if module.counter_defs.iter().any(|counter| {
-                        counter.scope == scope && counter.kind == kind && counter.site == site
-                    }) {
-                        continue;
-                    }
-                    let counter_id = CounterId(next_counter_id);
-                    next_counter_id += 1;
-                    module.counter_defs.push(CounterDef {
-                        id: counter_id,
+                    counters.define_if_missing(
                         scope,
-                        kind: kind.to_string(),
-                        site,
-                    });
+                        kind,
+                        CounterSite::Runtime {
+                            function_id: Some(function_id),
+                            instr_id: None,
+                        },
+                    );
                 }
             }
         }
         CounterScope::Global => {
-            let mut next_counter_id = module.counter_defs.len();
             for kind in ["runtime_incref", "runtime_decref"] {
-                let site = CounterSite::Runtime {
-                    function_id: None,
-                    instr_id: None,
-                };
-                if module.counter_defs.iter().any(|counter| {
-                    counter.scope == scope && counter.kind == kind && counter.site == site
-                }) {
-                    continue;
-                }
-                let counter_id = CounterId(next_counter_id);
-                next_counter_id += 1;
-                module.counter_defs.push(CounterDef {
-                    id: counter_id,
+                counters.define_if_missing(
                     scope,
-                    kind: kind.to_string(),
-                    site,
-                });
+                    kind,
+                    CounterSite::Runtime {
+                        function_id: None,
+                        instr_id: None,
+                    },
+                );
             }
         }
     }
@@ -182,25 +162,16 @@ pub fn instrument_bb_module_with_refcount_counters(
 pub fn instrument_bb_module_with_global_load_counters(
     module: &mut BlockPyModule<CodegenBlockPyPass>,
 ) {
-    let mut next_counter_id = module.counter_defs.len();
+    let mut counters = CounterBuilder::new(&mut module.counter_defs);
     for kind in ["global_load_hit", "global_load_miss"] {
-        let site = CounterSite::Runtime {
-            function_id: None,
-            instr_id: None,
-        };
-        if module.counter_defs.iter().any(|counter| {
-            counter.scope == CounterScope::Global && counter.kind == kind && counter.site == site
-        }) {
-            continue;
-        }
-        let counter_id = CounterId(next_counter_id);
-        next_counter_id += 1;
-        module.counter_defs.push(CounterDef {
-            id: counter_id,
-            scope: CounterScope::Global,
-            kind: kind.to_string(),
-            site,
-        });
+        counters.define_if_missing(
+            CounterScope::Global,
+            kind,
+            CounterSite::Runtime {
+                function_id: None,
+                instr_id: None,
+            },
+        );
     }
 }
 

@@ -675,6 +675,10 @@ impl<S, T: Instr> Block<S, T> {
     pub fn bb_param_names(&self) -> impl Iterator<Item = &str> {
         self.bb_params().map(|param| param.name.as_str())
     }
+
+    pub fn replace_fallthrough_target(&mut self, target: BlockLabel) -> bool {
+        self.term.replace_target(BlockLabel::fallthrough(), target)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1223,6 +1227,48 @@ pub enum BlockTerm<I: Instr> {
     BranchTable(TermBranchTable<I>),
     Raise(TermRaise<I>),
     Return(I),
+}
+
+impl<I: Instr> BlockTerm<I> {
+    pub fn replace_target(&mut self, from: BlockLabel, to: BlockLabel) -> bool {
+        match self {
+            Self::Jump(edge) => {
+                if edge.target == from {
+                    edge.target = to;
+                    true
+                } else {
+                    false
+                }
+            }
+            Self::IfTerm(if_term) => {
+                let mut replaced = false;
+                if if_term.then_label == from {
+                    if_term.then_label = to;
+                    replaced = true;
+                }
+                if if_term.else_label == from {
+                    if_term.else_label = to;
+                    replaced = true;
+                }
+                replaced
+            }
+            Self::BranchTable(branch) => {
+                let mut replaced = false;
+                for target in &mut branch.targets {
+                    if *target == from {
+                        *target = to;
+                        replaced = true;
+                    }
+                }
+                if branch.default_label == from {
+                    branch.default_label = to;
+                    replaced = true;
+                }
+                replaced
+            }
+            Self::Raise(_) | Self::Return(_) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

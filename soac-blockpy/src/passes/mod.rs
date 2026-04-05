@@ -5,6 +5,7 @@ mod blockpy_generators;
 pub mod blockpy_to_bb;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
+mod instrument;
 mod instr_id;
 mod name_binding;
 pub mod ruff_to_blockpy;
@@ -127,6 +128,7 @@ impl BlockPyPass for CodegenBlockPyPass {
 pub(crate) use blockpy_generators::lower_yield_in_lowered_core_blockpy_module_bundle;
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 pub use instr_id::{assign_function_instr_ids, assign_module_instr_ids};
+pub use instrument::{CounterBuilder, CounterHandle, InstrumentInstr, OptBlock, OptInstr};
 pub use trace::{
     instrument_bb_module_with_block_entry_counters, instrument_bb_module_with_global_load_counters,
     instrument_bb_module_with_refcount_counters,
