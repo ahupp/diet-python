@@ -1,6 +1,7 @@
 use crate::block_py::{
-    map_fn, BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, Mappable,
+    BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, Mappable,
     LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapInstr, NameLocation, WithMeta,
+    MapFunction,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 
@@ -13,7 +14,7 @@ pub fn normalize_bb_module_strings(
     let callable_defs = module
         .callable_defs
         .into_iter()
-        .map(|function| map_fn(&mut normalizer, function))
+        .map(|function| normalizer.map_fn(function))
         .collect::<Vec<BlockPyFunction<CodegenBlockPyPass>>>();
     module_constants.extend(normalizer.module_constants);
     BlockPyModule {

@@ -21,6 +21,7 @@ use soac_macros::enum_broadcast;
 use std::fmt;
 
 pub(crate) mod cfg;
+mod map;
 mod meta;
 mod name_gen;
 pub mod operation;
@@ -28,7 +29,6 @@ mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod scope;
-mod traverse;
 mod visit;
 pub(crate) mod validate;
 pub use crate::passes::{
@@ -37,7 +37,10 @@ pub use crate::passes::{
 };
 pub use visit::{Visit, VisitMut};
 #[allow(unused_imports)]
-pub(crate) use traverse::{map_fn, map_module, map_term, try_map_fn, try_map_term};
+pub(crate) use map::{
+    MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction, TryMapModule,
+    TryMapTerm,
+};
 #[allow(unused_imports)]
 pub(crate) use visit::{
     instr_any, walk_block, walk_block_mut, walk_expr, walk_expr_mut, walk_fn, walk_fn_mut,
@@ -1297,7 +1300,7 @@ where
         }
     }
 
-    map_term(&mut IntoInstrMap(std::marker::PhantomData), value)
+    IntoInstrMap(std::marker::PhantomData).map_term(value)
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,261 @@
+use super::*;
+
+pub(crate) trait MapTerm<In, Out>: MapInstr<In, Out>
+where
+    In: Instr,
+    Out: Instr,
+{
+    fn map_term(&mut self, term: BlockTerm<In>) -> BlockTerm<Out> {
+        match term {
+            BlockTerm::Jump(edge) => BlockTerm::Jump(BlockEdge {
+                target: edge.target,
+                args: edge.args,
+            }),
+            BlockTerm::IfTerm(if_term) => BlockTerm::IfTerm(TermIf {
+                test: self.map_instr(if_term.test),
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            }),
+            BlockTerm::BranchTable(branch) => BlockTerm::BranchTable(TermBranchTable {
+                index: self.map_instr(branch.index),
+                targets: branch.targets,
+                default_label: branch.default_label,
+            }),
+            BlockTerm::Raise(raise_stmt) => BlockTerm::Raise(TermRaise {
+                exc: raise_stmt.exc.map(|exc| self.map_instr(exc)),
+            }),
+            BlockTerm::Return(value) => BlockTerm::Return(self.map_instr(value)),
+        }
+    }
+}
+
+impl<In, Out, M> MapTerm<In, Out> for M
+where
+    In: Instr,
+    Out: Instr,
+    M: MapInstr<In, Out>,
+{
+}
+
+pub(crate) trait MapBlock<In, Out>: MapTerm<In, Out>
+where
+    In: Instr,
+    Out: Instr,
+{
+    fn map_block(&mut self, block: Block<In>) -> Block<Out> {
+        Block {
+            label: block.label,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| self.map_instr(stmt))
+                .collect(),
+            term: self.map_term(block.term),
+            params: block.params,
+            exc_edge: block.exc_edge,
+        }
+    }
+}
+
+impl<In, Out, M> MapBlock<In, Out> for M
+where
+    In: Instr,
+    Out: Instr,
+    M: MapTerm<In, Out>,
+{
+}
+
+pub(crate) trait MapFunction<PIn, POut>: MapBlock<PIn::Expr, POut::Expr>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+{
+    fn map_fn(&mut self, func: BlockPyFunction<PIn>) -> BlockPyFunction<POut> {
+        BlockPyFunction {
+            function_id: func.function_id,
+            name_gen: func.name_gen,
+            names: func.names,
+            kind: func.kind,
+            params: func.params,
+            blocks: func
+                .blocks
+                .into_iter()
+                .map(|block| self.map_block(block))
+                .collect(),
+            doc: func.doc,
+            storage_layout: func.storage_layout,
+            scope: func.scope,
+        }
+    }
+}
+
+impl<PIn, POut, M> MapFunction<PIn, POut> for M
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: MapBlock<PIn::Expr, POut::Expr>,
+{
+}
+
+pub(crate) trait MapModule<PIn, POut>: MapFunction<PIn, POut>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+{
+    fn map_module(&mut self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
+        BlockPyModule {
+            module_name_gen: module.module_name_gen,
+            global_names: module.global_names,
+            callable_defs: module
+                .callable_defs
+                .into_iter()
+                .map(|function| self.map_fn(function))
+                .collect(),
+            module_constants: module.module_constants,
+            counter_defs: module.counter_defs,
+        }
+    }
+}
+
+impl<PIn, POut, M> MapModule<PIn, POut> for M
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: MapFunction<PIn, POut>,
+{
+}
+
+pub(crate) trait TryMapTerm<In, Out, Error>: TryMapInstr<In, Out, Error>
+where
+    In: Instr,
+    Out: Instr,
+{
+    fn try_map_term(&mut self, term: BlockTerm<In>) -> Result<BlockTerm<Out>, Error> {
+        match term {
+            BlockTerm::Jump(edge) => Ok(BlockTerm::Jump(BlockEdge {
+                target: edge.target,
+                args: edge.args,
+            })),
+            BlockTerm::IfTerm(if_term) => Ok(BlockTerm::IfTerm(TermIf {
+                test: self.try_map_instr(if_term.test)?,
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            })),
+            BlockTerm::BranchTable(branch) => Ok(BlockTerm::BranchTable(TermBranchTable {
+                index: self.try_map_instr(branch.index)?,
+                targets: branch.targets,
+                default_label: branch.default_label,
+            })),
+            BlockTerm::Raise(raise_stmt) => Ok(BlockTerm::Raise(TermRaise {
+                exc: raise_stmt
+                    .exc
+                    .map(|exc| self.try_map_instr(exc))
+                    .transpose()?,
+            })),
+            BlockTerm::Return(value) => Ok(BlockTerm::Return(self.try_map_instr(value)?)),
+        }
+    }
+}
+
+impl<In, Out, Error, M> TryMapTerm<In, Out, Error> for M
+where
+    In: Instr,
+    Out: Instr,
+    M: TryMapInstr<In, Out, Error>,
+{
+}
+
+pub(crate) trait TryMapBlock<In, Out, Error>: TryMapTerm<In, Out, Error>
+where
+    In: Instr,
+    Out: Instr,
+{
+    fn try_map_block(&mut self, block: Block<In>) -> Result<Block<Out>, Error> {
+        Ok(Block {
+            label: block.label,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| self.try_map_instr(stmt))
+                .collect::<Result<_, _>>()?,
+            term: self.try_map_term(block.term)?,
+            params: block.params,
+            exc_edge: block.exc_edge,
+        })
+    }
+}
+
+impl<In, Out, Error, M> TryMapBlock<In, Out, Error> for M
+where
+    In: Instr,
+    Out: Instr,
+    M: TryMapTerm<In, Out, Error>,
+{
+}
+
+pub(crate) trait TryMapFunction<PIn, POut, Error>: TryMapBlock<PIn::Expr, POut::Expr, Error>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+{
+    fn try_map_fn(
+        &mut self,
+        func: BlockPyFunction<PIn>,
+    ) -> Result<BlockPyFunction<POut>, Error> {
+        Ok(BlockPyFunction {
+            function_id: func.function_id,
+            name_gen: func.name_gen,
+            names: func.names,
+            kind: func.kind,
+            params: func.params,
+            blocks: func
+                .blocks
+                .into_iter()
+                .map(|block| self.try_map_block(block))
+                .collect::<Result<_, _>>()?,
+            doc: func.doc,
+            storage_layout: func.storage_layout,
+            scope: func.scope,
+        })
+    }
+}
+
+impl<PIn, POut, Error, M> TryMapFunction<PIn, POut, Error> for M
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: TryMapBlock<PIn::Expr, POut::Expr, Error>,
+{
+}
+
+#[allow(dead_code)]
+pub(crate) trait TryMapModule<PIn, POut, Error>: TryMapFunction<PIn, POut, Error>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+{
+    fn try_map_module(
+        &mut self,
+        module: BlockPyModule<PIn>,
+    ) -> Result<BlockPyModule<POut>, Error> {
+        Ok(BlockPyModule {
+            module_name_gen: module.module_name_gen,
+            global_names: module.global_names,
+            callable_defs: module
+                .callable_defs
+                .into_iter()
+                .map(|function| self.try_map_fn(function))
+                .collect::<Result<_, _>>()?,
+            module_constants: module.module_constants,
+            counter_defs: module.counter_defs,
+        })
+    }
+}
+
+impl<PIn, POut, Error, M> TryMapModule<PIn, POut, Error> for M
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: TryMapFunction<PIn, POut, Error>,
+{
+}

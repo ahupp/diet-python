@@ -3,14 +3,15 @@ use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
     compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, literal_expr, try_map_fn, try_map_term,
+    core_runtime_positional_call_expr_with_meta, literal_expr,
     BindingKind, Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
     BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, CallArgKeyword, CallArgPositional,
     CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithYield, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr, ImplicitNoneExpr, Instr,
     Load, MakeFunction, Mappable, ModuleNameGen, ScopeExprNode, StorageLayout, Store,
-    TermBranchTable, TermIf, TermRaise, TryMapInstr, UnaryOp, UnaryOpKind, UnresolvedName,
+    TermBranchTable, TermIf, TermRaise, TryMapFunction, TryMapInstr, TryMapTerm, UnaryOp,
+    UnaryOpKind, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -731,7 +732,7 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 
 fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<CoreBlockPyExpr> {
     let mut mapper = ErrOnYield;
-    try_map_term(&mut mapper, term.clone()).unwrap_or_else(|_| {
+    mapper.try_map_term(term.clone()).unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
         )
@@ -1750,7 +1751,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
             FunctionKind::Function => {
                 let qualname = callable.names.qualname.clone();
                 let mut mapper = ErrOnYield;
-                callable_defs.push(try_map_fn(&mut mapper, callable).unwrap_or_else(|_| {
+                callable_defs.push(mapper.try_map_fn(callable).unwrap_or_else(|_| {
                     panic!(
                         "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
                         qualname

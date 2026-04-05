@@ -1,7 +1,7 @@
 use crate::block_py::{
-    instr_any, map_term, Await, Block, BlockPyFunction, BlockPyNameLike, BlockTerm,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapInstr,
-    Mappable, Store, UnresolvedName, WithMeta, Yield, YieldFrom,
+    instr_any, Await, Block, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load,
+    MapInstr, MapTerm, Mappable, Store, UnresolvedName, WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithYield;
@@ -189,7 +189,7 @@ fn make_eval_order_explicit_in_core_term(
         out,
         cleanup: &mut cleanup,
     };
-    map_term(&mut map, term)
+    map.map_term(term)
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
@@ -357,7 +357,7 @@ fn make_eval_order_explicit_in_core_term_without_await(
         out,
         cleanup: &mut cleanup,
     };
-    map_term(&mut map, term)
+    map.map_term(term)
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(

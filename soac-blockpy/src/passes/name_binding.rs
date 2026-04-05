@@ -1,14 +1,14 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
     compute_storage_layout_from_scope, core_runtime_positional_call_expr_with_meta, literal_expr,
-    map_fn, runtime_symbol, BindingKind, BindingPurpose, BindingTarget, BlockArg, BlockPyFunction,
+    runtime_symbol, BindingKind, BindingPurpose, BindingTarget, BlockArg, BlockPyFunction,
     BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallArgPositional, CallableScopeInfo,
     CallableScopeKind, CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName,
     ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, MapInstr, Mappable, NameLocation, SetItem, StorageLayout, Store,
-    UnresolvedName, WithMeta, ChildVisitable,
+    MakeCell, MakeFunction, MapFunction, MapInstr, Mappable, NameLocation, SetItem,
+    StorageLayout, Store, UnresolvedName, WithMeta, ChildVisitable,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -2126,7 +2126,7 @@ fn locate_names_in_callable(
         cell_bindings,
         global_slots,
     };
-    map_fn(&mut mapper, callable)
+    mapper.map_fn(callable)
 }
 
 fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Vec<FunctionId>) {
@@ -2593,7 +2593,7 @@ fn lower_name_binding_callable(
         callee_make_function_captures,
         local_slots: local_slots.clone(),
     };
-    let mut lowered = map_fn(&mut mapper, callable);
+    let mut lowered = mapper.map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
     populate_stack_slots_in_storage_layout(&mut lowered, local_slots);
     let storage_layout = lowered

@@ -7,7 +7,7 @@ use crate::block_py::{
     core_call_expr_with_meta, BinOpKind, BindingKind, BindingPurpose, Block, BlockBuilder,
     BlockLabel, BlockPyLiteral, BlockPyNameLike, BlockTerm, CallArgPositional, CallableScopeInfo,
     CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout, TryMapTerm,
     StructuredInstr, UnaryOpKind, WithMeta, Yield,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -403,7 +403,7 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
     ));
 
     let mut mapper = ErrOnYield;
-    assert!(crate::block_py::try_map_term(&mut mapper, term).is_err());
+    assert!(mapper.try_map_term(term).is_err());
 }
 
 #[test]

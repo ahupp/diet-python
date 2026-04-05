@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_runtime_positional_call_expr_with_meta, map_module, BlockPyModule,
+    core_runtime_positional_call_expr_with_meta, BlockPyModule,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, MapInstr, Mappable,
-    UnresolvedName, WithMeta, YieldFrom,
+    MapModule, UnresolvedName, WithMeta, YieldFrom,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use soac_macros::match_default;
@@ -36,7 +36,7 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
 ) -> BlockPyModule<CoreBlockPyPassWithYield> {
     let mut mapper = CoreAwaitLoweringMap;
-    map_module(&mut mapper, module)
+    mapper.map_module(module)
 }
 
 #[cfg(test)]
