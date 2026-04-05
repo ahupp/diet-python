@@ -40,10 +40,10 @@ fn format_counter_row(row: &CounterDumpRowView<'_>) -> String {
         row.kind,
         row.site_kind,
         row.function_id
-            .map(|function_id| function_id.to_string())
+            .map(|function_id| function_id.packed().to_string())
             .unwrap_or_else(|| "-".to_string()),
         row.current_function_id
-            .map(|function_id| function_id.to_string())
+            .map(|function_id| function_id.packed().to_string())
             .unwrap_or_else(|| "-".to_string()),
         row.function_qualname.unwrap_or("-"),
         row.block_label.unwrap_or("-"),
@@ -92,7 +92,34 @@ mod tests {
         };
 
         let rendered = format_counter_row(&row);
-        assert!(rendered.contains("site_function_id=1:7"), "{rendered}");
-        assert!(rendered.contains("current_function_id=1:7"), "{rendered}");
+        assert!(
+            rendered.contains(format!("site_function_id={}", FunctionId::new(1, 7).packed()).as_str()),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(
+                format!("current_function_id={}", FunctionId::new(1, 7).packed()).as_str()
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn global_row_output_uses_zero_function_id() {
+        let row = CounterDumpRowView {
+            counter_id: 3,
+            scope: "global",
+            kind: "runtime_incref",
+            site_kind: "runtime",
+            function_id: Some(FunctionId::global()),
+            current_function_id: Some(FunctionId::global()),
+            function_qualname: None,
+            block_label: None,
+            value: 11,
+        };
+
+        let rendered = format_counter_row(&row);
+        assert!(rendered.contains("site_function_id=0"), "{rendered}");
+        assert!(rendered.contains("current_function_id=0"), "{rendered}");
     }
 }

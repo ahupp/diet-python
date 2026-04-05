@@ -14,8 +14,13 @@ fn main() {
 fn find_python_shared_lib_name(dir: &std::path::Path) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries {
-        let path = entry.ok()?.path();
-        let file_name = path.file_name()?.to_str()?;
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
         if !file_name.starts_with("libpython") || !file_name.ends_with(".so") {
             continue;
         }

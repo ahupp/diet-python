@@ -386,8 +386,8 @@ mod test {
                 scope: "global".to_string(),
                 kind: "runtime_incref".to_string(),
                 site_kind: "runtime".to_string(),
-                function_id: None,
-                current_function_id: None,
+                function_id: Some(FunctionId::global()),
+                current_function_id: Some(FunctionId::global()),
                 function_qualname: None,
                 block_label: None,
                 value: 11,
@@ -433,8 +433,8 @@ mod test {
         assert_eq!(second_row.scope, "global");
         assert_eq!(second_row.kind, "runtime_incref");
         assert_eq!(second_row.site_kind, "runtime");
-        assert_eq!(second_row.function_id, None);
-        assert_eq!(second_row.current_function_id, None);
+        assert_eq!(second_row.function_id, Some(FunctionId::global()));
+        assert_eq!(second_row.current_function_id, Some(FunctionId::global()));
         assert_eq!(second_row.function_qualname, None);
         assert_eq!(second_row.block_label, None);
         assert_eq!(second_row.value, 11);

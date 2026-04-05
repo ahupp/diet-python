@@ -311,8 +311,8 @@ mod tests {
                     scope: "global".to_string(),
                     kind: "runtime_incref".to_string(),
                     site_kind: "runtime".to_string(),
-                    function_id: None,
-                    current_function_id: None,
+                    function_id: Some(FunctionId::global()),
+                    current_function_id: Some(FunctionId::global()),
                     function_qualname: None,
                     block_label: None,
                     value: 19,
@@ -371,7 +371,7 @@ mod tests {
         );
         assert_eq!(
             read_u64(&bytes, function_id_offset + 8),
-            COUNTER_DUMP_NONE_U64
+            FunctionId::global().packed()
         );
         assert_eq!(
             read_u64(&bytes, current_function_id_offset),
@@ -379,7 +379,7 @@ mod tests {
         );
         assert_eq!(
             read_u64(&bytes, current_function_id_offset + 8),
-            COUNTER_DUMP_NONE_U64
+            FunctionId::global().packed()
         );
         assert_eq!(read_u64(&bytes, value_offset), 11);
         assert_eq!(read_u64(&bytes, value_offset + 8), 19);

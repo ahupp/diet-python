@@ -118,8 +118,8 @@ impl SharedModuleState {
                         scope: counter_scope_name(counter.scope).to_string(),
                         kind: counter.kind.clone(),
                         site_kind: "runtime".to_string(),
-                        function_id: *function_id,
-                        current_function_id: *function_id,
+                        function_id: Some(function_id.unwrap_or(FunctionId::global())),
+                        current_function_id: Some(function_id.unwrap_or(FunctionId::global())),
                         function_qualname: function_id.and_then(|function_id| {
                             self.lookup_function(function_id)
                                 .map(|function| function.names.qualname.clone())

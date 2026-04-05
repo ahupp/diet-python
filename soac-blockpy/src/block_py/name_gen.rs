@@ -7,12 +7,18 @@ use std::sync::Arc;
 pub struct FunctionId(u64);
 
 impl FunctionId {
+    pub const GLOBAL: Self = Self(0);
+
     pub const fn new(module_id: u32, function_id: u32) -> Self {
         Self(((module_id as u64) << 32) | function_id as u64)
     }
 
     pub const fn from_packed(packed: u64) -> Self {
         Self(packed)
+    }
+
+    pub const fn global() -> Self {
+        Self::GLOBAL
     }
 
     pub const fn packed(self) -> u64 {
