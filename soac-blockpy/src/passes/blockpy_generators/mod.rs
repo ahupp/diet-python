@@ -3,9 +3,9 @@ use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
     compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, literal_expr,
-    BindingKind, Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
-    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, CallArgKeyword, CallArgPositional,
+    core_runtime_positional_call_expr_with_meta, literal_expr, BindingKind, Block, BlockArg,
+    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyFunction,
+    BlockPyModule, BlockPyNameLike, BlockTerm, CallArgKeyword, CallArgPositional,
     CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithYield, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr, ImplicitNoneExpr, Instr,
@@ -270,7 +270,6 @@ where
             collect_named_expr_target_names(expr, self.names);
         }
     }
-
     let mut names = HashSet::new();
     crate::block_py::walk_term(&mut AssignedNamesVisitor { names: &mut names }, term);
     names

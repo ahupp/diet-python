@@ -1,18 +1,34 @@
-use super::RuffExpr;
+use super::{BlockLabel, RuffExpr};
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
-use std::num::NonZeroU32;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct InstrId(pub NonZeroU32);
+pub struct InstrId {
+    block_label: BlockLabel,
+    instr_index_in_block: u32,
+}
 
 impl InstrId {
-    pub fn new(value: u32) -> Option<Self> {
-        NonZeroU32::new(value).map(Self)
+    pub const fn new(block_label: BlockLabel, instr_index_in_block: u32) -> Self {
+        Self {
+            block_label,
+            instr_index_in_block,
+        }
     }
 
-    pub fn get(self) -> u32 {
-        self.0.get()
+    pub const fn block_label(self) -> BlockLabel {
+        self.block_label
+    }
+
+    pub const fn instr_index_in_block(self) -> u32 {
+        self.instr_index_in_block
+    }
+}
+
+impl fmt::Display for InstrId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.block_label, self.instr_index_in_block)
     }
 }
 

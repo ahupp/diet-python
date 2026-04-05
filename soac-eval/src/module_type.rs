@@ -124,7 +124,7 @@ impl SharedModuleState {
                         site_kind: "runtime".to_string(),
                         function_id: Some(function_id.unwrap_or(FunctionId::global())),
                         current_function_id: Some(function_id.unwrap_or(FunctionId::global())),
-                        instr_id: instr_id.map(|instr_id| instr_id.get()),
+                        instr_id: *instr_id,
                         function_qualname: function_id.and_then(|function_id| {
                             self.lookup_function(function_id)
                                 .map(|function| function.names.qualname.clone())

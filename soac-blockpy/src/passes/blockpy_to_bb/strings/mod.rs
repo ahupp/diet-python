@@ -1,7 +1,6 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, Mappable,
-    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapInstr, NameLocation, WithMeta,
-    MapFunction,
+    BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, LiteralValue, Load,
+    LocatedCoreBlockPyExpr, LocatedName, MapFunction, MapInstr, Mappable, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 

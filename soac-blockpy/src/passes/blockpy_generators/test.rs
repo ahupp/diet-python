@@ -7,8 +7,8 @@ use crate::block_py::{
     core_call_expr_with_meta, BinOpKind, BindingKind, BindingPurpose, Block, BlockBuilder,
     BlockLabel, BlockPyLiteral, BlockPyNameLike, BlockTerm, CallArgPositional, CallableScopeInfo,
     CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout, TryMapTerm,
-    StructuredInstr, UnaryOpKind, WithMeta, Yield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout,
+    StructuredInstr, TryMapTerm, UnaryOpKind, WithMeta, Yield,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;

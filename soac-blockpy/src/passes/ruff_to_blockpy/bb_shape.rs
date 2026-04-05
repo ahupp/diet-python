@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BlockArg, BlockEdge, BlockPyNameLike, BlockTerm, CoreBlockPyExpr,
+    BlockArg, BlockEdge, BlockPyNameLike, BlockTerm, ChildVisitable, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr,
-    UnresolvedName, WithMeta, ChildVisitable,
+    UnresolvedName, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -141,10 +141,13 @@ where
         }
     }
 
-    crate::block_py::walk_term_mut(&mut RewriteTermVisitor {
-        exc_name,
-        _marker: std::marker::PhantomData,
-    }, term);
+    crate::block_py::walk_term_mut(
+        &mut RewriteTermVisitor {
+            exc_name,
+            _marker: std::marker::PhantomData,
+        },
+        term,
+    );
 }
 
 fn rewrite_current_exception_in_expr<E>(expr: &mut E, exc_name: &str)

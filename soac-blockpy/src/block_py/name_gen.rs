@@ -58,6 +58,10 @@ impl BlockLabel {
         }
     }
 
+    pub const fn as_u32(self) -> u32 {
+        self.index
+    }
+
     pub fn index(self) -> usize {
         self.index as usize
     }
@@ -137,10 +141,8 @@ impl ModuleNameGen {
     }
 
     pub fn next_function_name_gen(&self) -> FunctionNameGen {
-        let function_id = FunctionId::new(
-            self.module_id,
-            self.state.fetch_add(1, Ordering::Relaxed),
-        );
+        let function_id =
+            FunctionId::new(self.module_id, self.state.fetch_add(1, Ordering::Relaxed));
         FunctionNameGen::new(function_id)
     }
 }

@@ -71,9 +71,8 @@ def outer(scale):
         .iter()
         .find(|function| function.names.bind_name == "inner")
         .expect("missing lowered inner function");
-    let registered_function =
-        jit::lookup_blockpy_function(module_name, inner_function.function_id)
-            .expect("registered plan should exist");
+    let registered_function = jit::lookup_blockpy_function(module_name, inner_function.function_id)
+        .expect("registered plan should exist");
     let storage_layout = inner_function
         .storage_layout()
         .as_ref()

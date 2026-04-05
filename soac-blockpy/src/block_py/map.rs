@@ -231,15 +231,13 @@ where
 {
 }
 
-pub(crate) trait TryMapFunction<PIn, POut, Error>: TryMapBlock<PIn::Expr, POut::Expr, Error>
+pub(crate) trait TryMapFunction<PIn, POut, Error>:
+    TryMapBlock<PIn::Expr, POut::Expr, Error>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
 {
-    fn try_map_fn(
-        &mut self,
-        func: BlockPyFunction<PIn>,
-    ) -> Result<BlockPyFunction<POut>, Error> {
+    fn try_map_fn(&mut self, func: BlockPyFunction<PIn>) -> Result<BlockPyFunction<POut>, Error> {
         Ok(BlockPyFunction {
             function_id: func.function_id,
             name_gen: func.name_gen,
@@ -272,10 +270,7 @@ where
     PIn: BlockPyPass,
     POut: BlockPyPass,
 {
-    fn try_map_module(
-        &mut self,
-        module: BlockPyModule<PIn>,
-    ) -> Result<BlockPyModule<POut>, Error> {
+    fn try_map_module(&mut self, module: BlockPyModule<PIn>) -> Result<BlockPyModule<POut>, Error> {
         Ok(BlockPyModule {
             module_name_gen: module.module_name_gen,
             global_names: module.global_names,

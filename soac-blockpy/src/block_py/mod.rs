@@ -29,26 +29,29 @@ mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod scope;
-mod visit;
 pub(crate) mod validate;
+mod visit;
 pub use crate::passes::{
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     LocatedCoreBlockPyExpr,
 };
-pub use visit::{Visit, VisitMut};
-pub use map::{MapInstr, TryMapInstr};
 #[allow(unused_imports)]
 pub(crate) use map::{
     MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction, TryMapModule,
     TryMapTerm,
 };
+pub use map::{MapInstr, TryMapInstr};
+pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
+pub(crate) use validate::validate_module;
 #[allow(unused_imports)]
 pub(crate) use visit::{
     instr_any, walk_block, walk_block_mut, walk_expr, walk_expr_mut, walk_fn, walk_fn_mut,
     walk_module, walk_module_mut, walk_stmt, walk_stmt_mut, walk_term, walk_term_mut,
 };
-pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
-pub(crate) use validate::validate_module;
+pub use visit::{
+    Visit, VisitBlock, VisitFunction, VisitInstr, VisitModule, VisitMut, VisitMutBlock,
+    VisitMutFunction, VisitMutInstr, VisitMutModule, VisitMutTerm, VisitTerm,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CounterId(pub usize);

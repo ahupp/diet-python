@@ -588,7 +588,8 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             counter_defs: Vec::new(),
         });
     assert!(
-        rendered.contains("StoreName(\"inner\", MakeFunction(0:0, Function, tuple_values(), NONE))"),
+        rendered
+            .contains("StoreName(\"inner\", MakeFunction(0:0, Function, tuple_values(), NONE))"),
         "{rendered}"
     );
 }

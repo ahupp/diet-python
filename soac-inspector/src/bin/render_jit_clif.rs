@@ -1,7 +1,7 @@
+use soac_blockpy::block_py::FunctionId;
 use soac_inspector::{
     jit_debug_plan, register_named_plans_from_source, render_registered_jit_clif,
 };
-use soac_blockpy::block_py::FunctionId;
 use std::fs;
 use std::path::{Path, PathBuf};
 

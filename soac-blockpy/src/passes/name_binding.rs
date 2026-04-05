@@ -4,11 +4,11 @@ use crate::block_py::{
     runtime_symbol, BindingKind, BindingPurpose, BindingTarget, BlockArg, BlockPyFunction,
     BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallArgPositional, CallableScopeInfo,
     CallableScopeKind, CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName,
-    ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
-    FunctionKind, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, MapFunction, MapInstr, Mappable, NameLocation, SetItem,
-    StorageLayout, Store, UnresolvedName, WithMeta, ChildVisitable,
+    ChildVisitable, ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding,
+    FunctionId, FunctionKind, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    MakeCell, MakeFunction, MapFunction, MapInstr, Mappable, NameLocation, SetItem, StorageLayout,
+    Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,

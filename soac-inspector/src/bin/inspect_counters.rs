@@ -77,7 +77,7 @@ fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::format_counter_row;
-    use soac_blockpy::block_py::FunctionId;
+    use soac_blockpy::block_py::{BlockLabel, FunctionId, InstrId};
     use soac_inspector::CounterDumpRowView;
 
     #[test]
@@ -89,7 +89,7 @@ mod tests {
             site_kind: "runtime",
             function_id: Some(FunctionId::new(1, 7)),
             current_function_id: Some(FunctionId::new(1, 7)),
-            instr_id: Some(4),
+            instr_id: Some(InstrId::new(BlockLabel::from_index(2), 4)),
             function_qualname: Some("pkg.mod.f"),
             block_label: None,
             value: 11,
@@ -97,7 +97,8 @@ mod tests {
 
         let rendered = format_counter_row(&row);
         assert!(
-            rendered.contains(format!("site_function_id={}", FunctionId::new(1, 7).packed()).as_str()),
+            rendered
+                .contains(format!("site_function_id={}", FunctionId::new(1, 7).packed()).as_str()),
             "{rendered}"
         );
         assert!(
@@ -106,7 +107,7 @@ mod tests {
             ),
             "{rendered}"
         );
-        assert!(rendered.contains("instr_id=4"), "{rendered}");
+        assert!(rendered.contains("instr_id=bb2:4"), "{rendered}");
     }
 
     #[test]

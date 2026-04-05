@@ -96,7 +96,6 @@ fn test_name_gen() -> FunctionNameGen {
     module_name_gen.next_function_name_gen()
 }
 
-
 #[test]
 fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
     let function = BlockPyFunction::<CoreBlockPyPass> {
