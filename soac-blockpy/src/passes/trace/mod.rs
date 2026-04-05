@@ -135,6 +135,7 @@ pub fn instrument_bb_module_with_refcount_counters(
                 for kind in ["runtime_incref", "runtime_decref"] {
                     let site = CounterSite::Runtime {
                         function_id: Some(function_id),
+                        instr_id: None,
                     };
                     if module.counter_defs.iter().any(|counter| {
                         counter.scope == scope && counter.kind == kind && counter.site == site
@@ -155,7 +156,10 @@ pub fn instrument_bb_module_with_refcount_counters(
         CounterScope::Global => {
             let mut next_counter_id = module.counter_defs.len();
             for kind in ["runtime_incref", "runtime_decref"] {
-                let site = CounterSite::Runtime { function_id: None };
+                let site = CounterSite::Runtime {
+                    function_id: None,
+                    instr_id: None,
+                };
                 if module.counter_defs.iter().any(|counter| {
                     counter.scope == scope && counter.kind == kind && counter.site == site
                 }) {
@@ -180,7 +184,10 @@ pub fn instrument_bb_module_with_global_load_counters(
 ) {
     let mut next_counter_id = module.counter_defs.len();
     for kind in ["global_load_hit", "global_load_miss"] {
-        let site = CounterSite::Runtime { function_id: None };
+        let site = CounterSite::Runtime {
+            function_id: None,
+            instr_id: None,
+        };
         if module.counter_defs.iter().any(|counter| {
             counter.scope == CounterScope::Global && counter.kind == kind && counter.site == site
         }) {

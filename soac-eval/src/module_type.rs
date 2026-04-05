@@ -105,6 +105,7 @@ impl SharedModuleState {
                             site_kind: "block_entry".to_string(),
                             function_id: Some(*function_id),
                             current_function_id: Some(*function_id),
+                            instr_id: None,
                             function_qualname: function
                                 .map(|function| function.names.qualname.clone())
                                 .or_else(|| Some("<missing-function>".to_string())),
@@ -112,7 +113,10 @@ impl SharedModuleState {
                             value,
                         }
                     }
-                    CounterSite::Runtime { function_id } => CounterDumpRow {
+                    CounterSite::Runtime {
+                        function_id,
+                        instr_id,
+                    } => CounterDumpRow {
                         counter_id: u32::try_from(counter.id.0)
                             .expect("counter ids should fit in u32"),
                         scope: counter_scope_name(counter.scope).to_string(),
@@ -120,6 +124,7 @@ impl SharedModuleState {
                         site_kind: "runtime".to_string(),
                         function_id: Some(function_id.unwrap_or(FunctionId::global())),
                         current_function_id: Some(function_id.unwrap_or(FunctionId::global())),
+                        instr_id: instr_id.map(|instr_id| instr_id.get()),
                         function_qualname: function_id.and_then(|function_id| {
                             self.lookup_function(function_id)
                                 .map(|function| function.names.qualname.clone())
@@ -568,6 +573,7 @@ def f():
                 kind: "runtime_incref".to_string(),
                 site: CounterSite::Runtime {
                     function_id: Some(FunctionId::new(0, 7)),
+                    instr_id: None,
                 },
             },
             CounterDef {
@@ -576,19 +582,26 @@ def f():
                 kind: "runtime_incref".to_string(),
                 site: CounterSite::Runtime {
                     function_id: Some(FunctionId::new(0, 7)),
+                    instr_id: None,
                 },
             },
             CounterDef {
                 id: CounterId(2),
                 scope: CounterScope::Global,
                 kind: "runtime_decref".to_string(),
-                site: CounterSite::Runtime { function_id: None },
+                site: CounterSite::Runtime {
+                    function_id: None,
+                    instr_id: None,
+                },
             },
             CounterDef {
                 id: CounterId(3),
                 scope: CounterScope::Global,
                 kind: "runtime_decref".to_string(),
-                site: CounterSite::Runtime { function_id: None },
+                site: CounterSite::Runtime {
+                    function_id: None,
+                    instr_id: None,
+                },
             },
             CounterDef {
                 id: CounterId(4),

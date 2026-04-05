@@ -34,7 +34,7 @@ fn print_usage() {
 
 fn format_counter_row(row: &CounterDumpRowView<'_>) -> String {
     format!(
-        "  counter={} scope={} kind={} site={} site_function_id={} current_function_id={} function={} block={} value={}",
+        "  counter={} scope={} kind={} site={} site_function_id={} current_function_id={} instr_id={} function={} block={} value={}",
         row.counter_id,
         row.scope,
         row.kind,
@@ -44,6 +44,9 @@ fn format_counter_row(row: &CounterDumpRowView<'_>) -> String {
             .unwrap_or_else(|| "-".to_string()),
         row.current_function_id
             .map(|function_id| function_id.packed().to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        row.instr_id
+            .map(|instr_id| instr_id.to_string())
             .unwrap_or_else(|| "-".to_string()),
         row.function_qualname.unwrap_or("-"),
         row.block_label.unwrap_or("-"),
@@ -86,6 +89,7 @@ mod tests {
             site_kind: "runtime",
             function_id: Some(FunctionId::new(1, 7)),
             current_function_id: Some(FunctionId::new(1, 7)),
+            instr_id: Some(4),
             function_qualname: Some("pkg.mod.f"),
             block_label: None,
             value: 11,
@@ -102,6 +106,7 @@ mod tests {
             ),
             "{rendered}"
         );
+        assert!(rendered.contains("instr_id=4"), "{rendered}");
     }
 
     #[test]
@@ -113,6 +118,7 @@ mod tests {
             site_kind: "runtime",
             function_id: Some(FunctionId::global()),
             current_function_id: Some(FunctionId::global()),
+            instr_id: None,
             function_qualname: None,
             block_label: None,
             value: 11,

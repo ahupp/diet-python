@@ -1,16 +1,35 @@
 use super::RuffExpr;
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
+use std::num::NonZeroU32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct InstrId(pub NonZeroU32);
+
+impl InstrId {
+    pub fn new(value: u32) -> Option<Self> {
+        NonZeroU32::new(value).map(Self)
+    }
+
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Meta {
     pub node_index: ast::AtomicNodeIndex,
+    pub instr_id: Option<InstrId>,
     pub range: TextRange,
 }
 
 impl Meta {
     pub fn new(node_index: ast::AtomicNodeIndex, range: TextRange) -> Self {
-        Self { node_index, range }
+        Self {
+            node_index,
+            instr_id: None,
+            range,
+        }
     }
 
     pub fn synthetic() -> Self {

@@ -108,10 +108,18 @@ fn adds_named_global_load_counters_once() {
     assert_eq!(counters.len(), 2);
     assert!(counters.iter().any(|counter| {
         counter.kind == "global_load_hit"
-            && counter.site == CounterSite::Runtime { function_id: None }
+            && counter.site
+                == CounterSite::Runtime {
+                    function_id: None,
+                    instr_id: None,
+                }
     }));
     assert!(counters.iter().any(|counter| {
         counter.kind == "global_load_miss"
-            && counter.site == CounterSite::Runtime { function_id: None }
+            && counter.site
+                == CounterSite::Runtime {
+                    function_id: None,
+                    instr_id: None,
+                }
     }));
 }

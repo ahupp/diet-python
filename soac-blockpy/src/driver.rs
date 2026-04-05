@@ -175,6 +175,7 @@ pub(crate) fn rewrite_module_with_tracker(
     let bb_codegen: BlockPyModule<CodegenBlockPyPass> = pass_tracker.run_pass("bb_codegen", || {
         let mut bb_codegen = passes::normalize_bb_module_strings(&bb_prepared);
         passes::relabel_dense_bb_module(&mut bb_codegen);
+        passes::assign_module_instr_ids(&mut bb_codegen);
         bb_codegen
     });
 

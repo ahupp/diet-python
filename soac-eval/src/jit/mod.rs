@@ -1085,6 +1085,7 @@ fn lookup_runtime_counter_id(
         kind,
         &CounterSite::Runtime {
             function_id: Some(function_id),
+            instr_id: None,
         },
     )
     .or_else(|| {
@@ -1092,7 +1093,10 @@ fn lookup_runtime_counter_id(
             counter_defs,
             CounterScope::Global,
             kind,
-            &CounterSite::Runtime { function_id: None },
+            &CounterSite::Runtime {
+                function_id: None,
+                instr_id: None,
+            },
         )
     })
 }
@@ -1116,7 +1120,10 @@ fn lookup_global_runtime_counter_ptr(
         counter_defs,
         CounterScope::Global,
         kind,
-        &CounterSite::Runtime { function_id: None },
+        &CounterSite::Runtime {
+            function_id: None,
+            instr_id: None,
+        },
     )
     .map(|counter_id| counter_ptr_for_id(counter_ptrs, counter_id))
     .transpose()

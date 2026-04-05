@@ -1,4 +1,4 @@
-pub use self::meta::{HasMeta, Meta, WithMeta};
+pub use self::meta::{HasMeta, InstrId, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
 pub(crate) use self::scope::{
@@ -66,6 +66,7 @@ pub enum CounterSite {
     },
     Runtime {
         function_id: Option<FunctionId>,
+        instr_id: Option<InstrId>,
     },
 }
 

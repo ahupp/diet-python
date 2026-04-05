@@ -829,6 +829,7 @@ def f(x):
                     .find_map(|counter| match &counter.site {
                         CounterSite::Runtime {
                             function_id: Some(counter_function_id),
+                            instr_id: None,
                         } if counter.scope == CounterScope::Function
                             && counter.kind == "runtime_incref"
                             && *counter_function_id == function.function_id =>
@@ -844,6 +845,7 @@ def f(x):
                     .find_map(|counter| match &counter.site {
                         CounterSite::Runtime {
                             function_id: Some(counter_function_id),
+                            instr_id: None,
                         } if counter.scope == CounterScope::Function
                             && counter.kind == "runtime_decref"
                             && *counter_function_id == function.function_id =>
