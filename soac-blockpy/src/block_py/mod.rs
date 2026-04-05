@@ -35,15 +35,13 @@ pub use crate::passes::{
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     LocatedCoreBlockPyExpr,
 };
-pub use visit::{VisitMutInstr, VisitInstr};
+pub use visit::{Visit, VisitMut};
 #[allow(unused_imports)]
 pub(crate) use traverse::{map_fn, map_module, map_term, try_map_fn, try_map_term};
 #[allow(unused_imports)]
 pub(crate) use visit::{
     instr_any, walk_block, walk_block_mut, walk_expr, walk_expr_mut, walk_fn, walk_fn_mut,
     walk_module, walk_module_mut, walk_stmt, walk_stmt_mut, walk_term, walk_term_mut,
-    VisitBlock, VisitFunction, VisitModule, VisitMutBlock, VisitMutFunction, VisitMutModule,
-    VisitMutTerm, VisitTerm,
 };
 pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
@@ -252,11 +250,11 @@ pub trait TryMapInstr<In: Instr, Out: Instr, Error> {
 pub trait ChildVisitable<E: Instr>: Clone + fmt::Debug + Sized {
     fn visit_children<V>(&self, visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<E> + ?Sized;
+        V: crate::block_py::Visit<E> + ?Sized;
 
     fn visit_children_mut<V>(&mut self, visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<E> + ?Sized;
+        V: crate::block_py::VisitMut<E> + ?Sized;
 }
 
 pub trait Mappable<E>: Sized
@@ -344,13 +342,13 @@ impl BlockPyNameLike for ast::ExprName {
 impl ChildVisitable<Expr> for Expr {
     fn visit_children<V>(&self, visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<Expr> + ?Sized,
+        V: crate::block_py::Visit<Expr> + ?Sized,
     {
         struct DirectChildVisitor<'a, V: ?Sized>(&'a mut V);
 
-        impl<V> crate::block_py::VisitMutInstr<Expr> for DirectChildVisitor<'_, V>
+        impl<V> crate::block_py::VisitMut<Expr> for DirectChildVisitor<'_, V>
         where
-            V: crate::block_py::VisitInstr<Expr> + ?Sized,
+            V: crate::block_py::Visit<Expr> + ?Sized,
         {
             fn visit_instr_mut(&mut self, expr: &mut Expr) {
                 self.0.visit_instr(expr);
@@ -363,13 +361,13 @@ impl ChildVisitable<Expr> for Expr {
 
     fn visit_children_mut<V>(&mut self, visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<Expr> + ?Sized,
+        V: crate::block_py::VisitMut<Expr> + ?Sized,
     {
         struct DirectChildTransformer<'a, V: ?Sized>(&'a mut V);
 
         impl<V> crate::transformer::Transformer for DirectChildTransformer<'_, V>
         where
-            V: crate::block_py::VisitMutInstr<Expr> + ?Sized,
+            V: crate::block_py::VisitMut<Expr> + ?Sized,
         {
             fn visit_expr(&mut self, expr: &mut Expr) {
                 self.0.visit_instr_mut(expr);
@@ -474,13 +472,13 @@ impl UnresolvedName {
 impl ChildVisitable<RuffExpr> for RuffExpr {
     fn visit_children<V>(&self, visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<RuffExpr> + ?Sized,
+        V: crate::block_py::Visit<RuffExpr> + ?Sized,
     {
         struct RuffChildVisitor<'a, V: ?Sized>(&'a mut V);
 
-        impl<V> crate::block_py::VisitInstr<Expr> for RuffChildVisitor<'_, V>
+        impl<V> crate::block_py::Visit<Expr> for RuffChildVisitor<'_, V>
         where
-            V: crate::block_py::VisitInstr<RuffExpr> + ?Sized,
+            V: crate::block_py::Visit<RuffExpr> + ?Sized,
         {
             fn visit_instr(&mut self, expr: &Expr) {
                 self.0.visit_instr(&RuffExpr(expr.clone()));
@@ -492,13 +490,13 @@ impl ChildVisitable<RuffExpr> for RuffExpr {
 
     fn visit_children_mut<V>(&mut self, visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<RuffExpr> + ?Sized,
+        V: crate::block_py::VisitMut<RuffExpr> + ?Sized,
     {
         struct RuffChildVisitor<'a, V: ?Sized>(&'a mut V);
 
-        impl<V> crate::block_py::VisitMutInstr<Expr> for RuffChildVisitor<'_, V>
+        impl<V> crate::block_py::VisitMut<Expr> for RuffChildVisitor<'_, V>
         where
-            V: crate::block_py::VisitMutInstr<RuffExpr> + ?Sized,
+            V: crate::block_py::VisitMut<RuffExpr> + ?Sized,
         {
             fn visit_instr_mut(&mut self, expr: &mut Expr) {
                 let mut wrapped = RuffExpr(expr.clone());

@@ -124,19 +124,14 @@ where
         _marker: std::marker::PhantomData<fn(E)>,
     }
 
-    impl<E> crate::block_py::VisitMutInstr<E> for RewriteTermVisitor<'_, E>
+    impl<E> crate::block_py::VisitMut<E> for RewriteTermVisitor<'_, E>
     where
         E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
     {
         fn visit_instr_mut(&mut self, expr: &mut E) {
             rewrite_current_exception_in_expr(expr, self.exc_name);
         }
-    }
 
-    impl<E> crate::block_py::VisitMutTerm<E> for RewriteTermVisitor<'_, E>
-    where
-        E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
-    {
         fn visit_raise_term_mut(&mut self, raise_term: &mut crate::block_py::TermRaise<E>) {
             if let Some(exc) = raise_term.exc.as_mut() {
                 rewrite_current_exception_in_expr(exc, self.exc_name);
@@ -160,7 +155,7 @@ where
         exc_name: &'a str,
     }
 
-    impl<E> crate::block_py::VisitMutInstr<E> for RewriteVisitor<'_>
+    impl<E> crate::block_py::VisitMut<E> for RewriteVisitor<'_>
     where
         E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
     {

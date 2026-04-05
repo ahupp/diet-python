@@ -261,19 +261,13 @@ where
         names: &'a mut HashSet<String>,
     }
 
-    impl<E> crate::block_py::VisitInstr<E> for AssignedNamesVisitor<'_>
+    impl<E> crate::block_py::Visit<E> for AssignedNamesVisitor<'_>
     where
         E: ScopeExprNode + Instr,
     {
         fn visit_instr(&mut self, expr: &E) {
             collect_named_expr_target_names(expr, self.names);
         }
-    }
-
-    impl<E> crate::block_py::VisitTerm<E> for AssignedNamesVisitor<'_>
-    where
-        E: ScopeExprNode + Instr,
-    {
     }
 
     let mut names = HashSet::new();
@@ -289,7 +283,7 @@ where
         names: &'a mut HashSet<String>,
     }
 
-    impl<E> crate::block_py::VisitInstr<E> for NamedExprTargetVisitor<'_>
+    impl<E> crate::block_py::Visit<E> for NamedExprTargetVisitor<'_>
     where
         E: ScopeExprNode + Instr,
     {

@@ -77,13 +77,11 @@ fn rewrite_current_exception_in_located_term(
         exc_name: &'a str,
     }
 
-    impl crate::block_py::VisitMutInstr<LocatedCoreBlockPyExpr> for RewriteTermVisitor<'_> {
+    impl crate::block_py::VisitMut<LocatedCoreBlockPyExpr> for RewriteTermVisitor<'_> {
         fn visit_instr_mut(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
             rewrite_current_exception_in_located_expr(expr, self.exc_name);
         }
-    }
 
-    impl crate::block_py::VisitMutTerm<LocatedCoreBlockPyExpr> for RewriteTermVisitor<'_> {
         fn visit_raise_term_mut(
             &mut self,
             raise_term: &mut crate::block_py::TermRaise<LocatedCoreBlockPyExpr>,
@@ -104,7 +102,7 @@ fn rewrite_current_exception_in_located_expr(expr: &mut LocatedCoreBlockPyExpr, 
         exc_name: &'a str,
     }
 
-    impl crate::block_py::VisitMutInstr<LocatedCoreBlockPyExpr> for RewriteVisitor<'_> {
+    impl crate::block_py::VisitMut<LocatedCoreBlockPyExpr> for RewriteVisitor<'_> {
         fn visit_instr_mut(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
             rewrite_current_exception_in_located_expr(expr, self.exc_name);
         }

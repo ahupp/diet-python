@@ -137,7 +137,7 @@ where
 {
     fn visit_children_mut<V>(&mut self, visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<E> + ?Sized,
+        V: crate::block_py::VisitMut<E> + ?Sized,
     {
         visitor.visit_instr_mut(&mut self.func);
         for arg in &mut self.args {
@@ -150,7 +150,7 @@ where
 
     fn visit_children<V>(&self, visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<E> + ?Sized,
+        V: crate::block_py::Visit<E> + ?Sized,
     {
         visitor.visit_instr(&self.func);
         for arg in &self.args {
@@ -285,13 +285,13 @@ where
 {
     fn visit_children<V>(&self, _visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<I> + ?Sized,
+        V: crate::block_py::Visit<I> + ?Sized,
     {
     }
 
     fn visit_children_mut<V>(&mut self, _visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<I> + ?Sized,
+        V: crate::block_py::VisitMut<I> + ?Sized,
     {
     }
 }
@@ -373,14 +373,14 @@ where
 {
     fn visit_children_mut<V>(&mut self, visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<I> + ?Sized,
+        V: crate::block_py::VisitMut<I> + ?Sized,
     {
         visitor.visit_instr_mut(&mut self.value);
     }
 
     fn visit_children<V>(&self, visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<I> + ?Sized,
+        V: crate::block_py::Visit<I> + ?Sized,
     {
         visitor.visit_instr(&self.value);
     }
@@ -459,13 +459,13 @@ where
 {
     fn visit_children<V>(&self, _visitor: &mut V)
     where
-        V: crate::block_py::VisitInstr<I> + ?Sized,
+        V: crate::block_py::Visit<I> + ?Sized,
     {
     }
 
     fn visit_children_mut<V>(&mut self, _visitor: &mut V)
     where
-        V: crate::block_py::VisitMutInstr<I> + ?Sized,
+        V: crate::block_py::VisitMut<I> + ?Sized,
     {
     }
 }

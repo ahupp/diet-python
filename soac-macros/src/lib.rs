@@ -162,7 +162,7 @@ impl EnumBroadcastTarget {
                 impl #impl_generics ChildVisitable<Self> for #enum_name #ty_generics #where_clause {
                     fn visit_children<V>(&self, visitor: &mut V)
                     where
-                        V: crate::block_py::VisitInstr<Self> + ?Sized,
+                        V: crate::block_py::Visit<Self> + ?Sized,
                     {
                         match self {
                             #( #walk_arms )*
@@ -171,7 +171,7 @@ impl EnumBroadcastTarget {
 
                     fn visit_children_mut<V>(&mut self, visitor: &mut V)
                     where
-                        V: crate::block_py::VisitMutInstr<Self> + ?Sized,
+                        V: crate::block_py::VisitMut<Self> + ?Sized,
                     {
                         match self {
                             #( #walk_mut_arms )*

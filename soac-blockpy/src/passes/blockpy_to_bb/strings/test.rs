@@ -34,7 +34,7 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
         out: &'a mut Vec<String>,
     }
 
-    impl crate::block_py::VisitInstr<CodegenBlockPyExpr> for HelperNameVisitor<'_> {
+    impl crate::block_py::Visit<CodegenBlockPyExpr> for HelperNameVisitor<'_> {
         fn visit_instr(&mut self, expr: &CodegenBlockPyExpr) {
             collect_helper_like_names_in_expr(self.out, expr);
         }

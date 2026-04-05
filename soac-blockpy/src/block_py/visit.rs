@@ -22,7 +22,7 @@ where
             _marker: std::marker::PhantomData<fn(&I)>,
         }
 
-        impl<I, F> VisitInstr<I> for AnyChildVisitor<'_, I, F>
+        impl<I, F> Visit<I> for AnyChildVisitor<'_, I, F>
         where
             I: Instr + ChildVisitable<I>,
             F: FnMut(&I) -> bool,
@@ -46,28 +46,16 @@ where
     instr_any_impl(instr, &mut predicate)
 }
 
-pub trait VisitInstr<I: Instr> {
+pub trait Visit<I: Instr> {
     fn visit_instr(&mut self, expr: &I)
     where
         I: ChildVisitable<I>,
     {
         walk_expr(self, expr);
     }
-}
 
-pub trait VisitMutInstr<I: Instr> {
-    fn visit_instr_mut(&mut self, expr: &mut I)
-    where
-        I: ChildVisitable<I>,
-    {
-        walk_expr_mut(self, expr);
-    }
-}
-
-pub(crate) trait VisitTerm<I: Instr> {
     fn visit_term(&mut self, term: &BlockTerm<I>)
     where
-        Self: VisitInstr<I>,
         I: ChildVisitable<I>,
     {
         walk_term(self, term);
@@ -87,7 +75,6 @@ pub(crate) trait VisitTerm<I: Instr> {
 
     fn visit_if_term(&mut self, if_term: &TermIf<I>)
     where
-        Self: VisitInstr<I>,
         I: ChildVisitable<I>,
     {
         walk_if_term(self, if_term);
@@ -95,7 +82,6 @@ pub(crate) trait VisitTerm<I: Instr> {
 
     fn visit_branch_table_term(&mut self, branch: &TermBranchTable<I>)
     where
-        Self: VisitInstr<I>,
         I: ChildVisitable<I>,
     {
         walk_branch_table_term(self, branch);
@@ -103,7 +89,6 @@ pub(crate) trait VisitTerm<I: Instr> {
 
     fn visit_raise_term(&mut self, raise_term: &TermRaise<I>)
     where
-        Self: VisitInstr<I>,
         I: ChildVisitable<I>,
     {
         walk_raise_term(self, raise_term);
@@ -111,70 +96,11 @@ pub(crate) trait VisitTerm<I: Instr> {
 
     fn visit_return_term(&mut self, value: &I)
     where
-        Self: VisitInstr<I>,
         I: ChildVisitable<I>,
     {
         self.visit_instr(value);
     }
-}
 
-pub(crate) trait VisitMutTerm<I: Instr> {
-    fn visit_term_mut(&mut self, term: &mut BlockTerm<I>)
-    where
-        Self: VisitMutInstr<I>,
-        I: ChildVisitable<I>,
-    {
-        walk_term_mut(self, term);
-    }
-
-    fn visit_edge_mut(&mut self, edge: &mut BlockEdge) {
-        walk_edge_mut(self, edge);
-    }
-
-    fn visit_label_mut(&mut self, label: &mut BlockLabel) {
-        let _ = label;
-    }
-
-    fn visit_block_arg_mut(&mut self, arg: &mut BlockArg) {
-        let _ = arg;
-    }
-
-    fn visit_if_term_mut(&mut self, if_term: &mut TermIf<I>)
-    where
-        Self: VisitMutInstr<I>,
-        I: ChildVisitable<I>,
-    {
-        walk_if_term_mut(self, if_term);
-    }
-
-    fn visit_branch_table_term_mut(&mut self, branch: &mut TermBranchTable<I>)
-    where
-        Self: VisitMutInstr<I>,
-        I: ChildVisitable<I>,
-    {
-        walk_branch_table_term_mut(self, branch);
-    }
-
-    fn visit_raise_term_mut(&mut self, raise_term: &mut TermRaise<I>)
-    where
-        Self: VisitMutInstr<I>,
-        I: ChildVisitable<I>,
-    {
-        walk_raise_term_mut(self, raise_term);
-    }
-
-    fn visit_return_term_mut(&mut self, value: &mut I)
-    where
-        Self: VisitMutInstr<I>,
-        I: ChildVisitable<I>,
-    {
-        self.visit_instr_mut(value);
-    }
-}
-
-pub(crate) trait VisitBlock<I: Instr>:
-    VisitInstr<I> + VisitTerm<I>
-{
     fn visit_block(&mut self, block: &Block<I, I>)
     where
         I: ChildVisitable<I>,
@@ -196,11 +122,79 @@ pub(crate) trait VisitBlock<I: Instr>:
     fn visit_exception_edge(&mut self, edge: &BlockEdge) {
         self.visit_edge(edge);
     }
+
+    fn visit_fn<P>(&mut self, func: &BlockPyFunction<P>)
+    where
+        P: BlockPyPass<Expr = I>,
+        I: ChildVisitable<I>,
+    {
+        walk_fn(self, func);
+    }
+
+    fn visit_module<P>(&mut self, module: &BlockPyModule<P>)
+    where
+        P: BlockPyPass<Expr = I>,
+        I: ChildVisitable<I>,
+    {
+        walk_module(self, module);
+    }
 }
 
-pub(crate) trait VisitMutBlock<I: Instr>:
-    VisitMutInstr<I> + VisitMutTerm<I>
-{
+pub trait VisitMut<I: Instr> {
+    fn visit_instr_mut(&mut self, expr: &mut I)
+    where
+        I: ChildVisitable<I>,
+    {
+        walk_expr_mut(self, expr);
+    }
+
+    fn visit_term_mut(&mut self, term: &mut BlockTerm<I>)
+    where
+        I: ChildVisitable<I>,
+    {
+        walk_term_mut(self, term);
+    }
+
+    fn visit_edge_mut(&mut self, edge: &mut BlockEdge) {
+        walk_edge_mut(self, edge);
+    }
+
+    fn visit_label_mut(&mut self, label: &mut BlockLabel) {
+        let _ = label;
+    }
+
+    fn visit_block_arg_mut(&mut self, arg: &mut BlockArg) {
+        let _ = arg;
+    }
+
+    fn visit_if_term_mut(&mut self, if_term: &mut TermIf<I>)
+    where
+        I: ChildVisitable<I>,
+    {
+        walk_if_term_mut(self, if_term);
+    }
+
+    fn visit_branch_table_term_mut(&mut self, branch: &mut TermBranchTable<I>)
+    where
+        I: ChildVisitable<I>,
+    {
+        walk_branch_table_term_mut(self, branch);
+    }
+
+    fn visit_raise_term_mut(&mut self, raise_term: &mut TermRaise<I>)
+    where
+        I: ChildVisitable<I>,
+    {
+        walk_raise_term_mut(self, raise_term);
+    }
+
+    fn visit_return_term_mut(&mut self, value: &mut I)
+    where
+        I: ChildVisitable<I>,
+    {
+        self.visit_instr_mut(value);
+    }
+
     fn visit_block_mut(&mut self, block: &mut Block<I, I>)
     where
         I: ChildVisitable<I>,
@@ -222,39 +216,19 @@ pub(crate) trait VisitMutBlock<I: Instr>:
     fn visit_exception_edge_mut(&mut self, edge: &mut BlockEdge) {
         self.visit_edge_mut(edge);
     }
-}
 
-pub(crate) trait VisitFunction<P: BlockPyPass>: VisitBlock<P::Expr> {
-    fn visit_fn(&mut self, func: &BlockPyFunction<P>)
+    fn visit_fn_mut<P>(&mut self, func: &mut BlockPyFunction<P>)
     where
-        P::Expr: ChildVisitable<P::Expr>,
-    {
-        walk_fn(self, func);
-    }
-}
-
-pub(crate) trait VisitMutFunction<P: BlockPyPass>: VisitMutBlock<P::Expr> {
-    fn visit_fn_mut(&mut self, func: &mut BlockPyFunction<P>)
-    where
-        P::Expr: ChildVisitable<P::Expr>,
+        P: BlockPyPass<Expr = I>,
+        I: ChildVisitable<I>,
     {
         walk_fn_mut(self, func);
     }
-}
 
-pub(crate) trait VisitModule<P: BlockPyPass>: VisitFunction<P> {
-    fn visit_module(&mut self, module: &BlockPyModule<P>)
+    fn visit_module_mut<P>(&mut self, module: &mut BlockPyModule<P>)
     where
-        P::Expr: ChildVisitable<P::Expr>,
-    {
-        walk_module(self, module);
-    }
-}
-
-pub(crate) trait VisitMutModule<P: BlockPyPass>: VisitMutFunction<P> {
-    fn visit_module_mut(&mut self, module: &mut BlockPyModule<P>)
-    where
-        P::Expr: ChildVisitable<P::Expr>,
+        P: BlockPyPass<Expr = I>,
+        I: ChildVisitable<I>,
     {
         walk_module_mut(self, module);
     }
@@ -262,7 +236,7 @@ pub(crate) trait VisitMutModule<P: BlockPyPass>: VisitMutFunction<P> {
 
 pub(crate) fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
 where
-    V: VisitModule<P> + ?Sized,
+    V: Visit<P::Expr> + ?Sized,
     P: BlockPyPass,
     P::Expr: ChildVisitable<P::Expr>,
 {
@@ -273,7 +247,7 @@ where
 
 pub(crate) fn walk_module_mut<V, P>(visitor: &mut V, module: &mut BlockPyModule<P>)
 where
-    V: VisitMutModule<P> + ?Sized,
+    V: VisitMut<P::Expr> + ?Sized,
     P: BlockPyPass,
     P::Expr: ChildVisitable<P::Expr>,
 {
@@ -284,7 +258,7 @@ where
 
 pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
-    V: VisitFunction<P> + ?Sized,
+    V: Visit<P::Expr> + ?Sized,
     P: BlockPyPass,
     P::Expr: ChildVisitable<P::Expr>,
 {
@@ -295,7 +269,7 @@ where
 
 pub(crate) fn walk_fn_mut<V, P>(visitor: &mut V, func: &mut BlockPyFunction<P>)
 where
-    V: VisitMutFunction<P> + ?Sized,
+    V: VisitMut<P::Expr> + ?Sized,
     P: BlockPyPass,
     P::Expr: ChildVisitable<P::Expr>,
 {
@@ -306,7 +280,7 @@ where
 
 pub(crate) fn walk_block<V, I>(visitor: &mut V, block: &Block<I, I>)
 where
-    V: VisitBlock<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     for param in &block.params {
@@ -323,7 +297,7 @@ where
 
 pub(crate) fn walk_block_mut<V, I>(visitor: &mut V, block: &mut Block<I, I>)
 where
-    V: VisitMutBlock<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     for param in &mut block.params {
@@ -340,7 +314,7 @@ where
 
 pub(crate) fn walk_stmt<V, I>(visitor: &mut V, stmt: &I)
 where
-    V: VisitBlock<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr(stmt);
@@ -348,7 +322,7 @@ where
 
 pub(crate) fn walk_stmt_mut<V, I>(visitor: &mut V, stmt: &mut I)
 where
-    V: VisitMutBlock<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr_mut(stmt);
@@ -356,7 +330,7 @@ where
 
 pub(crate) fn walk_edge<V, I>(visitor: &mut V, edge: &BlockEdge)
 where
-    V: VisitTerm<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr,
 {
     visitor.visit_label(&edge.target);
@@ -367,7 +341,7 @@ where
 
 pub(crate) fn walk_edge_mut<V, I>(visitor: &mut V, edge: &mut BlockEdge)
 where
-    V: VisitMutTerm<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr,
 {
     visitor.visit_label_mut(&mut edge.target);
@@ -378,7 +352,7 @@ where
 
 pub(crate) fn walk_term<V, I>(visitor: &mut V, term: &BlockTerm<I>)
 where
-    V: VisitTerm<I> + VisitInstr<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     match term {
@@ -392,7 +366,7 @@ where
 
 pub(crate) fn walk_term_mut<V, I>(visitor: &mut V, term: &mut BlockTerm<I>)
 where
-    V: VisitMutTerm<I> + VisitMutInstr<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     match term {
@@ -406,7 +380,7 @@ where
 
 pub(crate) fn walk_if_term<V, I>(visitor: &mut V, if_term: &TermIf<I>)
 where
-    V: VisitTerm<I> + VisitInstr<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr(&if_term.test);
@@ -416,7 +390,7 @@ where
 
 pub(crate) fn walk_if_term_mut<V, I>(visitor: &mut V, if_term: &mut TermIf<I>)
 where
-    V: VisitMutTerm<I> + VisitMutInstr<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr_mut(&mut if_term.test);
@@ -426,7 +400,7 @@ where
 
 pub(crate) fn walk_branch_table_term<V, I>(visitor: &mut V, branch: &TermBranchTable<I>)
 where
-    V: VisitTerm<I> + VisitInstr<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr(&branch.index);
@@ -438,7 +412,7 @@ where
 
 pub(crate) fn walk_branch_table_term_mut<V, I>(visitor: &mut V, branch: &mut TermBranchTable<I>)
 where
-    V: VisitMutTerm<I> + VisitMutInstr<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     visitor.visit_instr_mut(&mut branch.index);
@@ -450,7 +424,7 @@ where
 
 pub(crate) fn walk_raise_term<V, I>(visitor: &mut V, raise_term: &TermRaise<I>)
 where
-    V: VisitTerm<I> + VisitInstr<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     if let Some(exc) = &raise_term.exc {
@@ -460,7 +434,7 @@ where
 
 pub(crate) fn walk_raise_term_mut<V, I>(visitor: &mut V, raise_term: &mut TermRaise<I>)
 where
-    V: VisitMutTerm<I> + VisitMutInstr<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     if let Some(exc) = &mut raise_term.exc {
@@ -470,7 +444,7 @@ where
 
 pub(crate) fn walk_expr<V, I>(visitor: &mut V, expr: &I)
 where
-    V: VisitInstr<I> + ?Sized,
+    V: Visit<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     expr.visit_children(visitor);
@@ -478,7 +452,7 @@ where
 
 pub(crate) fn walk_expr_mut<V, I>(visitor: &mut V, expr: &mut I)
 where
-    V: VisitMutInstr<I> + ?Sized,
+    V: VisitMut<I> + ?Sized,
     I: Instr + ChildVisitable<I>,
 {
     expr.visit_children_mut(visitor);

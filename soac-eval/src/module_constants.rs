@@ -532,7 +532,7 @@ impl ModuleConstantCollector {
     }
 }
 
-impl soac_blockpy::block_py::VisitInstr<CodegenBlockPyExpr> for ModuleConstantCollector {
+impl soac_blockpy::block_py::Visit<CodegenBlockPyExpr> for ModuleConstantCollector {
     fn visit_instr(&mut self, expr: &CodegenBlockPyExpr) {
         self.collect_expr(expr);
     }

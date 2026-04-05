@@ -1,6 +1,6 @@
 use crate::block_py::{
     walk_expr_mut, BlockPyFunction, BlockPyModule, ChildVisitable, CodegenBlockPyExpr, HasMeta,
-    InstrId, VisitMutBlock, VisitMutFunction, VisitMutTerm, WithMeta,
+    InstrId, VisitMut, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 
@@ -26,7 +26,7 @@ impl InstrIdAssigner {
     }
 }
 
-impl crate::block_py::VisitMutInstr<CodegenBlockPyExpr> for InstrIdAssigner {
+impl crate::block_py::VisitMut<CodegenBlockPyExpr> for InstrIdAssigner {
     fn visit_instr_mut(&mut self, expr: &mut CodegenBlockPyExpr)
     where
         CodegenBlockPyExpr: ChildVisitable<CodegenBlockPyExpr>,
@@ -34,15 +34,6 @@ impl crate::block_py::VisitMutInstr<CodegenBlockPyExpr> for InstrIdAssigner {
         self.assign(expr);
         walk_expr_mut(self, expr);
     }
-}
-
-impl VisitMutTerm<CodegenBlockPyExpr> for InstrIdAssigner {}
-
-impl VisitMutBlock<CodegenBlockPyExpr> for InstrIdAssigner {}
-
-impl VisitMutFunction<CodegenBlockPyPass> for InstrIdAssigner where
-    CodegenBlockPyExpr: ChildVisitable<CodegenBlockPyExpr>
-{
 }
 
 pub fn assign_function_instr_ids(function: &mut BlockPyFunction<CodegenBlockPyPass>) {
@@ -62,8 +53,7 @@ pub fn assign_module_instr_ids(module: &mut BlockPyModule<CodegenBlockPyPass>) {
 mod test {
     use super::assign_module_instr_ids;
     use crate::block_py::{
-        walk_fn, ChildVisitable, CodegenBlockPyExpr, HasMeta, VisitBlock, VisitFunction,
-        VisitInstr, VisitTerm,
+        walk_fn, ChildVisitable, CodegenBlockPyExpr, HasMeta, Visit,
     };
     use crate::passes::CodegenBlockPyPass;
     use crate::lower_python_to_blockpy_for_testing;
@@ -72,7 +62,7 @@ mod test {
         ids: Vec<u32>,
     }
 
-    impl VisitInstr<CodegenBlockPyExpr> for InstrIdCollector {
+    impl Visit<CodegenBlockPyExpr> for InstrIdCollector {
         fn visit_instr(&mut self, expr: &CodegenBlockPyExpr)
         where
             CodegenBlockPyExpr: ChildVisitable<CodegenBlockPyExpr>,
@@ -82,12 +72,6 @@ mod test {
             crate::block_py::walk_expr(self, expr);
         }
     }
-
-    impl VisitTerm<CodegenBlockPyExpr> for InstrIdCollector {}
-
-    impl VisitBlock<CodegenBlockPyExpr> for InstrIdCollector {}
-
-    impl VisitFunction<CodegenBlockPyPass> for InstrIdCollector {}
 
     #[test]
     fn assigns_sequential_instr_ids_per_function() {
