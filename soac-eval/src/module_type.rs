@@ -1,3 +1,4 @@
+use crate::counter_dump::{CounterDumpRecord, CounterDumpRow};
 use crate::module_constants::ModuleCodegenConstants;
 use crate::module_globals::ModuleGlobalCache;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
@@ -9,9 +10,12 @@ use soac_blockpy::block_py::{
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
+use std::env;
 use std::ffi::{c_int, c_void};
-use std::fmt::Write as _;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::mem::MaybeUninit;
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 
@@ -76,52 +80,79 @@ impl SharedModuleState {
         self.counter_values.get(slot).copied().unwrap_or_default()
     }
 
-    pub fn counter_report_text(&self) -> String {
-        let mut out = String::new();
-        for counter in &self.lowered_module.counter_defs {
-            let value = self.counter_value(counter.id);
-            match &counter.site {
-                CounterSite::BlockEntry {
-                    function_id,
-                    block_label,
-                } => {
-                    let qualname = self
-                        .lookup_function(*function_id)
-                        .map(|function| function.names.qualname.as_str())
-                        .unwrap_or("<missing-function>");
-                    let _ = writeln!(
-                        &mut out,
-                        "[soac counters] module={} counter={} scope={} kind={} site=block_entry function={} block={} value={}",
-                        self.module_name,
-                        counter.id.0,
-                        counter_scope_name(counter.scope),
-                        counter.kind,
-                        qualname,
-                        block_label,
-                        value,
-                    );
-                }
-                CounterSite::Runtime { function_id } => {
-                    let function = function_id.and_then(|id| {
-                        self.lookup_function(id)
-                            .map(|function| function.names.qualname.as_str())
-                    });
-                    let _ = writeln!(
-                        &mut out,
-                        "[soac counters] module={} counter={} scope={} kind={} site=runtime{} value={}",
-                        self.module_name,
-                        counter.id.0,
-                        counter_scope_name(counter.scope),
-                        counter.kind,
-                        function
-                            .map(|qualname| format!(" function={qualname}"))
-                            .unwrap_or_default(),
-                        value,
-                    );
-                }
-            }
+    pub fn counter_dump_record(&self) -> Option<CounterDumpRecord> {
+        if self.lowered_module.counter_defs.is_empty() {
+            return None;
         }
-        out
+
+        let rows = self
+            .lowered_module
+            .counter_defs
+            .iter()
+            .map(|counter| {
+                let value = self.counter_value(counter.id);
+                match &counter.site {
+                    CounterSite::BlockEntry {
+                        function_id,
+                        block_label,
+                    } => {
+                        let function = self.lookup_function(*function_id);
+                        CounterDumpRow {
+                            counter_id: u32::try_from(counter.id.0)
+                                .expect("counter ids should fit in u32"),
+                            scope: counter_scope_name(counter.scope).to_string(),
+                            kind: counter.kind.clone(),
+                            site_kind: "block_entry".to_string(),
+                            function_id: Some(
+                                u32::try_from(function_id.0)
+                                    .expect("function ids should fit in u32"),
+                            ),
+                            function_qualname: function
+                                .map(|function| function.names.qualname.clone())
+                                .or_else(|| Some("<missing-function>".to_string())),
+                            block_label: Some(block_label.to_string()),
+                            value,
+                        }
+                    }
+                    CounterSite::Runtime { function_id } => CounterDumpRow {
+                        counter_id: u32::try_from(counter.id.0)
+                            .expect("counter ids should fit in u32"),
+                        scope: counter_scope_name(counter.scope).to_string(),
+                        kind: counter.kind.clone(),
+                        site_kind: "runtime".to_string(),
+                        function_id: function_id.map(|function_id| {
+                            u32::try_from(function_id.0).expect("function ids should fit in u32")
+                        }),
+                        function_qualname: function_id.and_then(|function_id| {
+                            self.lookup_function(function_id)
+                                .map(|function| function.names.qualname.clone())
+                        }),
+                        block_label: None,
+                        value,
+                    },
+                }
+            })
+            .collect();
+
+        Some(CounterDumpRecord {
+            module_name: self.module_name.clone(),
+            package_name: (!self.package_name.is_empty()).then(|| self.package_name.clone()),
+            rows,
+        })
+    }
+
+    pub fn append_counter_dump_file(&self, path: &Path) -> Result<(), String> {
+        let Some(record) = self.counter_dump_record() else {
+            return Ok(());
+        };
+        let bytes = record.encode()?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+        file.write_all(bytes.as_slice())
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))
     }
 }
 
@@ -261,9 +292,13 @@ impl SoacExtModuleState {
             return;
         }
         let shared_state = unsafe { self.shared_state.assume_init_ref().as_ref() };
-        let counter_report = shared_state.counter_report_text();
-        if !counter_report.is_empty() {
-            eprint!("{counter_report}");
+        if let Some(path) = counter_dump_file_from_env() {
+            if let Err(err) = shared_state.append_counter_dump_file(path.as_path()) {
+                eprintln!(
+                    "[soac counters] failed to append counter dump to {}: {err}",
+                    path.display()
+                );
+            }
         }
         if self.global_cache_initialized {
             unsafe { ptr::drop_in_place(self.global_cache.as_mut_ptr()) };
@@ -323,6 +358,16 @@ impl SoacExtModuleState {
         self.global_cache.write(cache.clone());
         self.global_cache_initialized = true;
         Ok(cache)
+    }
+}
+
+fn counter_dump_file_from_env() -> Option<std::path::PathBuf> {
+    let raw = env::var("DIET_PYTHON_COUNTERS_FILE").ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.into())
     }
 }
 
@@ -456,11 +501,14 @@ impl SoacExtModule {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::counter_dump::COUNTER_DUMP_MAGIC;
     use soac_blockpy::lower_python_to_blockpy_for_testing;
     use soac_blockpy::passes::instrument_bb_module_with_block_entry_counters;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn counter_report_text_includes_block_entry_metadata_and_value() {
+    fn counter_dump_record_includes_block_entry_metadata_and_value() {
         let mut lowered = lower_python_to_blockpy_for_testing(
             r#"
 def f():
@@ -476,7 +524,9 @@ def f():
             .iter()
             .find(|function| function.names.bind_name == "f")
             .expect("missing lowered function f");
+        let function_id = function.function_id.0 as u32;
         let entry_label = function.entry_block().label;
+        let entry_label_text = entry_label.to_string();
 
         let shared_state = SharedModuleState {
             function_index_by_id: build_function_index_by_id(&lowered)
@@ -490,14 +540,25 @@ def f():
             package_name: String::new(),
         };
 
-        let report = shared_state.counter_report_text();
-        assert!(report.contains("module=counter_test"));
-        assert!(report.contains("scope=this"));
-        assert!(report.contains("kind=block_entry"));
-        assert!(report.contains("site=block_entry"));
-        assert!(report.contains("function=f"));
-        assert!(report.contains(format!("block={entry_label}").as_str()));
-        assert!(report.contains("value=3"));
+        let record = shared_state
+            .counter_dump_record()
+            .expect("counter dump record should be present");
+        assert_eq!(record.module_name, "counter_test");
+        let row = record
+            .rows
+            .iter()
+            .find(|row| {
+                row.kind == "block_entry"
+                    && row.block_label.as_deref() == Some(entry_label_text.as_str())
+            })
+            .expect("entry block counter row should be present");
+        assert_eq!(row.scope, "this");
+        assert_eq!(row.kind, "block_entry");
+        assert_eq!(row.site_kind, "block_entry");
+        assert_eq!(row.function_id, Some(function_id));
+        assert_eq!(row.function_qualname.as_deref(), Some("f"));
+        assert_eq!(row.block_label, Some(entry_label_text));
+        assert_eq!(row.value, 3);
     }
 
     #[test]
@@ -550,5 +611,54 @@ def f():
         assert_ne!(slots_by_id[0], slots_by_id[2]);
         assert_ne!(slots_by_id[0], slots_by_id[4]);
         assert_ne!(slots_by_id[2], slots_by_id[4]);
+    }
+
+    #[test]
+    fn append_counter_dump_file_writes_binary_record() {
+        let mut lowered = lower_python_to_blockpy_for_testing(
+            r#"
+VALUE = 1
+
+def f():
+    return VALUE
+"#,
+        )
+        .expect("transform should succeed")
+        .codegen_module;
+        instrument_bb_module_with_block_entry_counters(&mut lowered);
+
+        let shared_state = SharedModuleState {
+            function_index_by_id: build_function_index_by_id(&lowered)
+                .expect("function index should build"),
+            codegen_constants: ModuleCodegenConstants::collect_from_module(&lowered),
+            module_constant_objs: Vec::new(),
+            counter_slots_by_id: vec![0, 1].into_boxed_slice(),
+            counter_values: vec![5, 8].into_boxed_slice(),
+            lowered_module: lowered,
+            module_name: "counter_test".to_string(),
+            package_name: "pkg".to_string(),
+        };
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "soac_counter_dump_module_type_{unique}_{}.bin",
+            std::process::id()
+        ));
+        if path.exists() {
+            fs::remove_file(&path).expect("stale temp file should be removable");
+        }
+
+        shared_state
+            .append_counter_dump_file(path.as_path())
+            .expect("counter dump file should be written");
+
+        let bytes = fs::read(&path).expect("counter dump file should be readable");
+        assert!(bytes.starts_with(COUNTER_DUMP_MAGIC.as_slice()));
+        assert!(!bytes.is_empty());
+
+        fs::remove_file(&path).expect("temp file should be removable");
     }
 }

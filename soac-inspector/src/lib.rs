@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+mod counter_dump;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tower_http::services::ServeDir;
+
+pub use counter_dump::{CounterDumpFile, CounterDumpRecordView, CounterDumpRowView};
 
 static NEXT_WEB_MODULE_ID: AtomicU64 = AtomicU64::new(1);
 static PYTHON_INIT: Once = Once::new();

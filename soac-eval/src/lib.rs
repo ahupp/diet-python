@@ -6,6 +6,7 @@ include!(concat!(env!("OUT_DIR"), "/soac_runtime_clif.rs"));
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
 pub mod counter;
+pub mod counter_dump;
 pub mod jit;
 pub mod module_constants;
 pub mod module_globals;
