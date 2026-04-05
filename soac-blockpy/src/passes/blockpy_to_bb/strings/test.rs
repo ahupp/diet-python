@@ -41,6 +41,9 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
     }
 
     match expr {
+        CodegenBlockPyExpr::CalleeFunctionId(operation) => {
+            operation.visit_children(&mut HelperNameVisitor { out });
+        }
         CodegenBlockPyExpr::GetAttr(operation) => {
             out.push("__dp_getattr".to_string());
             operation.visit_children(&mut HelperNameVisitor { out });
@@ -61,6 +64,9 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
             if let CodegenBlockPyExpr::Load(op) = &*operation.func {
                 out.push(op.name.id_str().to_string());
             }
+            operation.visit_children(&mut HelperNameVisitor { out });
+        }
+        CodegenBlockPyExpr::CallDirect(operation) => {
             operation.visit_children(&mut HelperNameVisitor { out });
         }
         CodegenBlockPyExpr::BinOp(operation) => {

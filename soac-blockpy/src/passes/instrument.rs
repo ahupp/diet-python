@@ -249,8 +249,9 @@ fn all_paths_end_in_fallthrough<I: Instr>(
 mod tests {
     use super::*;
     use crate::block_py::{
-        BlockEdge, Call, CallArgPositional, CodegenBlockPyExpr, FunctionId, HasMeta, InstrId,
-        Load, LocatedName, Meta, NameLocation, TermBranchTable, WithMeta,
+        BlockEdge, CalleeFunctionId, Call, CallArgPositional, CallDirect, CodegenBlockPyExpr,
+        FunctionId, HasMeta, InstrId, Load, LocatedName, Meta, NameLocation, TermBranchTable,
+        WithMeta,
     };
     use crate::py_expr;
     use ruff_python_ast::name::Name;
@@ -326,7 +327,9 @@ mod tests {
                 self.entry_label,
                 Vec::new(),
                 BlockTerm::BranchTable(TermBranchTable {
-                    index: runtime_name_expr("__dp_call_target_dispatch_idx", meta.clone()),
+                    index: CodegenBlockPyExpr::CalleeFunctionId(
+                        CalleeFunctionId::new((*call.func).clone()).with_meta(meta.clone()),
+                    ),
                     targets: vec![self.hot0_label, self.hot1_label],
                     default_label: self.generic_label,
                 }),
@@ -335,13 +338,13 @@ mod tests {
             );
             let hot0 = Block::new(
                 self.hot0_label,
-                vec![runtime_helper_call(
-                    &format!(
-                        "__dp_call_direct_{}_{}",
-                        hot_targets.most_frequent.module_id(),
-                        hot_targets.most_frequent.function_id()
-                    ),
-                    call,
+                vec![CodegenBlockPyExpr::CallDirect(
+                    CallDirect::new(
+                        hot_targets.most_frequent,
+                        call.args.clone(),
+                        call.keywords.clone(),
+                    )
+                    .with_meta(meta.clone()),
                 )],
                 BlockTerm::Jump(BlockEdge::new(BlockLabel::fallthrough())),
                 Vec::new(),
@@ -349,13 +352,13 @@ mod tests {
             );
             let hot1 = Block::new(
                 self.hot1_label,
-                vec![runtime_helper_call(
-                    &format!(
-                        "__dp_call_direct_{}_{}",
-                        hot_targets.second_most_frequent.module_id(),
-                        hot_targets.second_most_frequent.function_id()
-                    ),
-                    call,
+                vec![CodegenBlockPyExpr::CallDirect(
+                    CallDirect::new(
+                        hot_targets.second_most_frequent,
+                        call.args.clone(),
+                        call.keywords.clone(),
+                    )
+                    .with_meta(meta.clone()),
                 )],
                 BlockTerm::Jump(BlockEdge::new(BlockLabel::fallthrough())),
                 Vec::new(),
@@ -391,21 +394,6 @@ mod tests {
         })
         .with_meta(meta)
         .into()
-    }
-
-    fn runtime_helper_call(
-        helper_name: &str,
-        call: &Call<CodegenBlockPyExpr>,
-    ) -> CodegenBlockPyExpr {
-        let meta = call.meta();
-        CodegenBlockPyExpr::Call(
-            Call::new(
-                runtime_name_expr(helper_name, meta.clone()),
-                call.args.clone(),
-                call.keywords.clone(),
-            )
-            .with_meta(meta),
-        )
     }
 
     #[test]
@@ -569,9 +557,25 @@ mod tests {
         let BlockTerm::BranchTable(branch) = &fragment.entry().term else {
             panic!("entry fragment should dispatch with br_table");
         };
+        assert!(matches!(
+            branch.index,
+            CodegenBlockPyExpr::CalleeFunctionId(_)
+        ));
         assert_eq!(branch.targets, vec![BlockLabel::from_index(11), BlockLabel::from_index(12)]);
         assert_eq!(branch.default_label, BlockLabel::from_index(13));
         assert_eq!(fragment.dependencies().len(), 3);
+        assert!(matches!(
+            fragment.dependencies()[0].body[0],
+            CodegenBlockPyExpr::CallDirect(_)
+        ));
+        assert!(matches!(
+            fragment.dependencies()[1].body[0],
+            CodegenBlockPyExpr::CallDirect(_)
+        ));
+        assert!(matches!(
+            fragment.dependencies()[2].body[0],
+            CodegenBlockPyExpr::Call(_)
+        ));
         for block in fragment.dependencies() {
             let BlockTerm::Jump(edge) = &block.term else {
                 panic!("dependency block should jump to fallthrough");

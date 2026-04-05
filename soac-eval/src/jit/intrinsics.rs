@@ -690,7 +690,9 @@ pub(super) fn emit_operation<'fb>(
     state: &mut impl OperationEmitState<'fb, CodegenBlockPyExpr>,
 ) -> Option<ir::Value> {
     match operation {
+        CodegenBlockPyExpr::CalleeFunctionId(_) => None,
         CodegenBlockPyExpr::Call(_) => None,
+        CodegenBlockPyExpr::CallDirect(_) => None,
         CodegenBlockPyExpr::BinOp(op) => Some(emit_binop(
             op.kind,
             state,

@@ -1574,9 +1574,9 @@ fn emit_codegen_expr(
     let tuple_new_ref = ctx.tuple_new_ref;
     let tuple_set_item_ref = ctx.tuple_set_item_ref;
 
-    match expr {
-        CodegenBlockPyExpr::Load(op) => {
-            return emit_codegen_located_name_load(
+        match expr {
+            CodegenBlockPyExpr::Load(op) => {
+                return emit_codegen_located_name_load(
                 fb,
                 &op.name,
                 local_names,
@@ -1594,6 +1594,7 @@ fn emit_codegen_expr(
         }
         expr @ (CodegenBlockPyExpr::BinOp(_)
         | CodegenBlockPyExpr::UnaryOp(_)
+        | CodegenBlockPyExpr::CalleeFunctionId(_)
         | CodegenBlockPyExpr::GetAttr(_)
         | CodegenBlockPyExpr::SetAttr(_)
         | CodegenBlockPyExpr::GetItem(_)
@@ -1798,6 +1799,9 @@ fn emit_codegen_expr(
                     panic!("operation {expr:?} should have been handled by direct emitter")
                 }
             }
+        }
+        CodegenBlockPyExpr::CallDirect(_) => {
+            panic!("CallDirect lowering is not implemented yet");
         }
         CodegenBlockPyExpr::Call(call) => {
             assert!(

@@ -12,8 +12,9 @@ pub use self::scope::{
 };
 use crate::py_expr;
 pub use operation::{
-    Await, BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
-    MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind, Yield, YieldFrom,
+    Await, BinOp, BinOpKind, CalleeFunctionId, Call, CallDirect, CellRef, CellRefForName, Del,
+    DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp,
+    UnaryOpKind, Yield, YieldFrom,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
@@ -680,7 +681,9 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
 pub enum CodegenBlockPyExpr {
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
+    CalleeFunctionId(CalleeFunctionId<Self>),
     Call(Call<Self>),
+    CallDirect(CallDirect<Self>),
     GetAttr(GetAttr<Self>),
     SetAttr(SetAttr<Self>),
     GetItem(GetItem<Self>),

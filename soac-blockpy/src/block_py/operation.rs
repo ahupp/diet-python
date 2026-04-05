@@ -209,6 +209,144 @@ impl<E: Instr> Mappable<E> for Call<E> {
 }
 
 define_operation! {
+    pub struct CalleeFunctionId<E> {
+        value: Box<E>,
+    }
+}
+
+#[derive(Clone)]
+pub struct CallDirect<E> {
+    _meta: Meta,
+    pub function_id: FunctionId,
+    pub args: Vec<CallArgPositional<E>>,
+    pub keywords: Vec<CallArgKeyword<E>>,
+}
+
+impl<E: fmt::Debug> fmt::Debug for CallDirect<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CallDirect({}", self.function_id)?;
+        for arg in &self.args {
+            write!(f, ", ")?;
+            match arg {
+                CallArgPositional::Positional(expr) => write!(f, "{expr:?}")?,
+                CallArgPositional::Starred(expr) => write!(f, "*{expr:?}")?,
+            }
+        }
+        for keyword in &self.keywords {
+            write!(f, ", ")?;
+            match keyword {
+                CallArgKeyword::Named { arg, value } => write!(f, "{arg}={value:?}")?,
+                CallArgKeyword::Starred(value) => write!(f, "**{value:?}")?,
+            }
+        }
+        write!(f, ")")
+    }
+}
+
+impl<E> CallDirect<E> {
+    pub fn new(
+        function_id: FunctionId,
+        args: impl Into<Vec<CallArgPositional<E>>>,
+        keywords: impl Into<Vec<CallArgKeyword<E>>>,
+    ) -> Self {
+        Self {
+            _meta: Meta::default(),
+            function_id,
+            args: args.into(),
+            keywords: keywords.into(),
+        }
+    }
+}
+
+impl<E> HasMeta for CallDirect<E> {
+    fn meta(&self) -> Meta {
+        self._meta.clone()
+    }
+}
+
+impl<E> WithMeta for CallDirect<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self._meta = meta;
+        self
+    }
+}
+
+impl<E> ChildVisitable<E> for CallDirect<E>
+where
+    E: Instr + ChildVisitable<E>,
+{
+    fn visit_children_mut<V>(&mut self, visitor: &mut V)
+    where
+        V: crate::block_py::VisitMut<E> + ?Sized,
+    {
+        for arg in &mut self.args {
+            visitor.visit_instr_mut(arg.expr_mut());
+        }
+        for keyword in &mut self.keywords {
+            visitor.visit_instr_mut(keyword.expr_mut());
+        }
+    }
+
+    fn visit_children<V>(&self, visitor: &mut V)
+    where
+        V: crate::block_py::Visit<E> + ?Sized,
+    {
+        for arg in &self.args {
+            visitor.visit_instr(arg.expr());
+        }
+        for keyword in &self.keywords {
+            visitor.visit_instr(keyword.expr());
+        }
+    }
+}
+
+impl<E: Instr> Mappable<E> for CallDirect<E> {
+    type Mapped<T: Instr> = CallDirect<T>;
+
+    fn map_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
+    where
+        T: Instr,
+        M: MapInstr<E, T>,
+    {
+        CallDirect {
+            _meta: self._meta,
+            function_id: self.function_id,
+            args: self
+                .args
+                .into_iter()
+                .map(|arg| arg.map_instr(|expr| map.map_instr(expr)))
+                .collect(),
+            keywords: self
+                .keywords
+                .into_iter()
+                .map(|keyword| keyword.map_instr(|expr| map.map_instr(expr)))
+                .collect(),
+        }
+    }
+
+    fn try_map_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        M: TryMapInstr<E, T, Error>,
+    {
+        Ok(CallDirect {
+            _meta: self._meta,
+            function_id: self.function_id,
+            args: self
+                .args
+                .into_iter()
+                .map(|arg| arg.try_map_instr(|expr| map.try_map_instr(expr)))
+                .collect::<Result<Vec<_>, _>>()?,
+            keywords: self
+                .keywords
+                .into_iter()
+                .map(|keyword| keyword.try_map_instr(|expr| map.try_map_instr(expr)))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+define_operation! {
     pub struct GetAttr<E> {
         value: Box<E>,
         attr: Box<E>,
