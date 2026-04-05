@@ -18,6 +18,7 @@ use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 pub struct SoacExtModuleDataRef<'a> {
     pub shared_state: &'a SharedModuleState,
@@ -32,6 +33,13 @@ pub struct SharedModuleState {
     module_constant_objs: Vec<Py<PyAny>>,
     counter_slots_by_id: Box<[usize]>,
     counter_values: Box<[u64]>,
+    compiled_direct_runner_handles: Mutex<HashMap<FunctionId, DirectRunnerCacheEntry>>,
+}
+
+#[derive(Clone, Copy)]
+enum DirectRunnerCacheEntry {
+    InProgress,
+    Ready(*mut c_void),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -78,6 +86,63 @@ impl SharedModuleState {
             return 0;
         };
         self.counter_values.get(slot).copied().unwrap_or_default()
+    }
+
+    pub(crate) fn lookup_or_compile_direct_code_ptr(
+        &self,
+        function_id: FunctionId,
+    ) -> Result<Option<*mut c_void>, String> {
+        {
+            let mut cache = self
+                .compiled_direct_runner_handles
+                .lock()
+                .map_err(|_| "compiled direct runner cache lock poisoned".to_string())?;
+            match cache.get(&function_id).copied() {
+                Some(DirectRunnerCacheEntry::Ready(handle)) => {
+                    return crate::jit::compiled_direct_code_ptr(handle).map(Some);
+                }
+                Some(DirectRunnerCacheEntry::InProgress) => return Ok(None),
+                None => {
+                    cache.insert(function_id, DirectRunnerCacheEntry::InProgress);
+                }
+            }
+        }
+        let function = self
+            .lookup_function(function_id)
+            .cloned()
+            .ok_or_else(|| format!("missing direct-call target for function_id={function_id}"))?;
+        let blocks = vec![ptr::null_mut::<c_void>(); function.blocks.len()];
+        let module_constant_ptrs = self.module_constant_ptrs();
+        let counter_ptrs = self.counter_ptrs();
+        let handle = unsafe {
+            crate::jit::compile_cranelift_run_bb_specialized_cached(
+                blocks.as_slice(),
+                &self.lowered_module,
+                &function,
+                &self.codegen_constants,
+                &self.lowered_module.counter_defs,
+                &module_constant_ptrs,
+                &counter_ptrs,
+                Some(self),
+            )?
+        };
+        let code_ptr = match crate::jit::compiled_direct_code_ptr(handle) {
+            Ok(code_ptr) => code_ptr,
+            Err(err) => {
+                let mut cache = self
+                    .compiled_direct_runner_handles
+                    .lock()
+                    .map_err(|_| "compiled direct runner cache lock poisoned".to_string())?;
+                cache.remove(&function_id);
+                return Err(err);
+            }
+        };
+        let mut cache = self
+            .compiled_direct_runner_handles
+            .lock()
+            .map_err(|_| "compiled direct runner cache lock poisoned".to_string())?;
+        cache.insert(function_id, DirectRunnerCacheEntry::Ready(handle));
+        Ok(Some(code_ptr))
     }
 
     pub fn counter_dump_record(&self) -> Option<CounterDumpRecord> {
@@ -158,6 +223,20 @@ impl SharedModuleState {
     }
 }
 
+impl Drop for SharedModuleState {
+    fn drop(&mut self) {
+        let cache = self
+            .compiled_direct_runner_handles
+            .get_mut()
+            .expect("compiled direct runner cache lock should not be poisoned during drop");
+        for handle in cache.drain().map(|(_, handle)| handle) {
+            if let DirectRunnerCacheEntry::Ready(handle) = handle {
+                unsafe { crate::jit::free_cranelift_run_bb_specialized_cached(handle) };
+            }
+        }
+    }
+}
+
 fn counter_scope_name(scope: CounterScope) -> &'static str {
     match scope {
         CounterScope::This => "this",
@@ -227,6 +306,7 @@ pub(crate) fn build_shared_state_for_testing(
         module_constant_objs,
         counter_slots_by_id,
         counter_values,
+        compiled_direct_runner_handles: Mutex::new(HashMap::new()),
     }))
 }
 
@@ -283,6 +363,7 @@ impl SoacExtModuleState {
             module_constant_objs,
             counter_slots_by_id,
             counter_values,
+            compiled_direct_runner_handles: Mutex::new(HashMap::new()),
         }));
         self.initialized = true;
         self.global_cache_initialized = false;
@@ -540,6 +621,7 @@ def f():
             lowered_module: lowered,
             module_name: "counter_test".to_string(),
             package_name: String::new(),
+            compiled_direct_runner_handles: Mutex::new(HashMap::new()),
         };
 
         let record = shared_state
@@ -648,6 +730,7 @@ def f():
             lowered_module: lowered,
             module_name: "counter_test".to_string(),
             package_name: "pkg".to_string(),
+            compiled_direct_runner_handles: Mutex::new(HashMap::new()),
         };
 
         let unique = SystemTime::now()

@@ -331,6 +331,31 @@ unsafe fn clif_vectorcall_data(
     Ok(&mut *(ptr as *mut ClifFunctionData))
 }
 
+pub unsafe fn registered_clif_function_id(
+    function: *mut ffi::PyObject,
+) -> Result<Option<FunctionId>, ()> {
+    if ffi::PyFunction_Check(function) == 0 {
+        return Ok(None);
+    }
+    let dict = (*(function as *mut ffi::PyFunctionObject)).func_dict;
+    if dict.is_null() {
+        return Ok(None);
+    }
+    let capsule = ffi::PyDict_GetItemString(dict, CLIF_VECTORCALL_ATTR.as_ptr() as *const c_char);
+    if capsule.is_null() {
+        return Ok(None);
+    }
+    let ptr = ffi::PyCapsule_GetPointer(
+        capsule,
+        CLIF_VECTORCALL_CAPSULE_NAME.as_ptr() as *const c_char,
+    );
+    if ptr.is_null() {
+        return Err(());
+    }
+    let data = &*(ptr as *const ClifFunctionData);
+    Ok(Some(data.function.function_id))
+}
+
 unsafe fn ensure_clif_vectorcall_compiled(
     _py: Python<'_>,
     callable: *mut ffi::PyObject,
@@ -346,6 +371,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
         let counter_ptrs = data.module_runtime.shared_module_state_owner.counter_ptrs();
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
+            &data.module_runtime.shared_module_state_owner.lowered_module,
             &data.function,
             &data
                 .module_runtime

@@ -118,6 +118,23 @@
 ## Construct generator code object during module init
 
 - Planning note:
+
+## Add typed non-object values for ops like CalleeFunctionId
+
+- Planning note:
+  - Some IR values are not semantically `PyObject*` and should remain machine values through lowering, optimization, and codegen.
+  - `CalleeFunctionId` is the immediate motivating case: it should stay a packed integer (`u64` in the IR model, lowered as an integer CLIF value), not round-trip through `PyLong`.
+  - The design should make this explicit in the type system instead of relying on ad hoc special-cases in individual lowering sites.
+  - A reasonable direction is:
+    1. introduce a small value-typing layer for codegen-visible expressions, distinguishing at least Python object values from raw integer values;
+    2. make operations like `CalleeFunctionId` produce a typed integer value directly;
+    3. update branching and other consumers that currently assume object-typed expressions so they can accept already-typed integer inputs without boxing;
+    4. keep payload nodes context-free and attach the value-kind on the enclosing operation or typed wrapper, not duplicated into nested payloads;
+    5. extend this only where it buys real simplification or avoids object churn, rather than turning the whole IR into a large static type system prematurely.
+  - The first concrete slice should be narrow:
+    - add typed handling for integer-valued ops needed by JIT lowering;
+    - convert `CalleeFunctionId` to that path;
+    - remove the remaining `PyLong` conversion on the `br_table`/dispatch path for this case.
   - Once closure generator factories construct `_DpClosureGenerator` / `_DpClosureAsyncGenerator` directly, they should stop rebuilding `.__code__.replace(...)` on every factory call.
   - The follow-up is to materialize those code objects once during module init and reference them as module constants from the generated factory blocks.
 

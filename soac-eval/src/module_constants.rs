@@ -442,6 +442,7 @@ impl ModuleConstantCollector {
                 }
             }
             CodegenBlockPyExpr::CallDirect(call) => {
+                self.collect_expr(call.callable.as_ref());
                 for arg in &call.args {
                     self.collect_expr(arg.expr());
                 }

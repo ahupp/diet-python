@@ -217,6 +217,7 @@ define_operation! {
 #[derive(Clone)]
 pub struct CallDirect<E> {
     _meta: Meta,
+    pub callable: Box<E>,
     pub function_id: FunctionId,
     pub args: Vec<CallArgPositional<E>>,
     pub keywords: Vec<CallArgKeyword<E>>,
@@ -224,7 +225,7 @@ pub struct CallDirect<E> {
 
 impl<E: fmt::Debug> fmt::Debug for CallDirect<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CallDirect({}", self.function_id)?;
+        write!(f, "CallDirect({}, {:?}", self.function_id, self.callable)?;
         for arg in &self.args {
             write!(f, ", ")?;
             match arg {
@@ -245,12 +246,14 @@ impl<E: fmt::Debug> fmt::Debug for CallDirect<E> {
 
 impl<E> CallDirect<E> {
     pub fn new(
+        callable: impl Into<Box<E>>,
         function_id: FunctionId,
         args: impl Into<Vec<CallArgPositional<E>>>,
         keywords: impl Into<Vec<CallArgKeyword<E>>>,
     ) -> Self {
         Self {
             _meta: Meta::default(),
+            callable: callable.into(),
             function_id,
             args: args.into(),
             keywords: keywords.into(),
@@ -279,6 +282,7 @@ where
     where
         V: crate::block_py::VisitMut<E> + ?Sized,
     {
+        visitor.visit_instr_mut(self.callable.as_mut());
         for arg in &mut self.args {
             visitor.visit_instr_mut(arg.expr_mut());
         }
@@ -291,6 +295,7 @@ where
     where
         V: crate::block_py::Visit<E> + ?Sized,
     {
+        visitor.visit_instr(self.callable.as_ref());
         for arg in &self.args {
             visitor.visit_instr(arg.expr());
         }
@@ -310,6 +315,7 @@ impl<E: Instr> Mappable<E> for CallDirect<E> {
     {
         CallDirect {
             _meta: self._meta,
+            callable: map.map_instr(*self.callable).into(),
             function_id: self.function_id,
             args: self
                 .args
@@ -331,6 +337,7 @@ impl<E: Instr> Mappable<E> for CallDirect<E> {
     {
         Ok(CallDirect {
             _meta: self._meta,
+            callable: map.try_map_instr(*self.callable)?.into(),
             function_id: self.function_id,
             args: self
                 .args

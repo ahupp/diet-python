@@ -230,10 +230,11 @@ mod tests {
         };
         let module_constants =
             crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
-        render_test_jit_function_with_constants(&function, blocks, &module_constants)
+        render_test_jit_function_with_constants(&module, &function, blocks, &module_constants)
     }
 
     fn render_test_jit_function_with_constants(
+        module: &BlockPyModule<CodegenBlockPyPass>,
         function: &BlockPyFunction<CodegenBlockPyPass>,
         blocks: &[ObjPtr],
         module_constants: &crate::module_constants::ModuleCodegenConstants,
@@ -256,6 +257,7 @@ mod tests {
             let built = build_cranelift_run_bb_specialized_function(
                 &mut jit_module,
                 blocks,
+                module,
                 function,
                 module_constants,
                 &[],
@@ -741,6 +743,7 @@ def f():
                 let blocks = vec![std::ptr::null_mut::<c_void>(); function.blocks.len()];
                 let compiled_handle = compile_cranelift_run_bb_specialized_cached(
                     &blocks,
+                    &shared_state.lowered_module,
                     &function,
                     &shared_state.codegen_constants,
                     &shared_state.lowered_module.counter_defs,
@@ -869,6 +872,7 @@ def f(x):
                 let blocks = vec![std::ptr::null_mut::<c_void>(); function.blocks.len()];
                 let compiled_handle = compile_cranelift_run_bb_specialized_cached(
                     &blocks,
+                    &shared_state.lowered_module,
                     &function,
                     &shared_state.codegen_constants,
                     &shared_state.lowered_module.counter_defs,

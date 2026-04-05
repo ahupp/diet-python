@@ -10,7 +10,11 @@ use crate::module_globals::ModuleGlobalCache;
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 
+use soac_blockpy::block_py::FunctionId;
+
 use crate::module_constants::raise_name_error_for_missing_name;
+use crate::tree_walk;
+use super::vmctx::JitModuleVmCtx;
 
 #[cfg(not(test))]
 use crate::module_constants::load_runtime_name_owned;
@@ -93,6 +97,58 @@ unsafe extern "C" fn py_vectorcall_hook(
         nargsf as usize,
         kwnames as *mut ffi::PyObject,
     ) as ObjPtr
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn callee_function_id_hook(callable: ObjPtr) -> i64 {
+    let function = resolve_function_object(callable);
+    if function.is_null() {
+        return i64::MIN;
+    }
+    let packed = match tree_walk::registered_clif_function_id(function as *mut ffi::PyObject) {
+        Ok(Some(function_id)) => function_id.packed() as i64,
+        Ok(None) => 0,
+        Err(()) => {
+            ffi::Py_DECREF(function as *mut ffi::PyObject);
+            return i64::MIN;
+        }
+    };
+    ffi::Py_DECREF(function as *mut ffi::PyObject);
+    packed
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn lookup_direct_code_ptr_hook(vmctx: ObjPtr, function_id: i64) -> ObjPtr {
+    if vmctx.is_null() || function_id < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_lookup_direct_code_ptr\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let vmctx = &*(vmctx as *const JitModuleVmCtx);
+    let Some(shared_state) = vmctx.shared_module_state.as_ref() else {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing shared module state for direct JIT call\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    };
+    match shared_state.lookup_or_compile_direct_code_ptr(FunctionId::from_packed(function_id as u64))
+    {
+        Ok(code_ptr) => code_ptr,
+        Err(err) => {
+            if let Ok(message) = std::ffi::CString::new(err) {
+                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, message.as_ptr());
+            } else {
+                ffi::PyErr_SetString(
+                    ffi::PyExc_RuntimeError,
+                    b"failed to resolve direct JIT code pointer\0".as_ptr() as *const i8,
+                );
+            }
+            ptr::null_mut()
+        }
+    }
 }
 
 #[cfg(not(test))]
@@ -865,6 +921,8 @@ mod test_only_export_stubs {
         kwnames: ObjPtr
     ));
     panic_obj_export!(dp_jit_py_call_with_kw(callable: ObjPtr, args: ObjPtr, kw: ObjPtr));
+    panic_i64_export!(dp_jit_callee_function_id(callable: ObjPtr));
+    panic_obj_export!(dp_jit_lookup_direct_code_ptr(vmctx: ObjPtr, function_id: i64));
     panic_obj_export!(dp_jit_get_raised_exception());
     panic_obj_export!(dp_jit_get_arg_item(args: ObjPtr, index: i64));
     panic_obj_export!(dp_jit_load_runtime_obj(name: ObjPtr));
@@ -952,6 +1010,16 @@ pub unsafe extern "C" fn dp_jit_py_call_with_kw(
     kw: ObjPtr,
 ) -> ObjPtr {
     py_call_with_kw_hook(callable, args, kw)
+}
+
+#[cfg(not(test))]
+pub unsafe extern "C" fn dp_jit_callee_function_id(callable: ObjPtr) -> i64 {
+    callee_function_id_hook(callable)
+}
+
+#[cfg(not(test))]
+pub unsafe extern "C" fn dp_jit_lookup_direct_code_ptr(vmctx: ObjPtr, function_id: i64) -> ObjPtr {
+    lookup_direct_code_ptr_hook(vmctx, function_id)
 }
 
 #[cfg(not(test))]
@@ -1364,6 +1432,14 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol(
         "dp_jit_pyobject_to_i64",
         dp_jit_pyobject_to_i64 as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_callee_function_id",
+        dp_jit_callee_function_id as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_lookup_direct_code_ptr",
+        dp_jit_lookup_direct_code_ptr as *const u8,
     );
     builder.symbol(
         "dp_jit_raise_deleted_name_error",

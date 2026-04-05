@@ -306,6 +306,7 @@ pub fn render_registered_jit_clif(
         unsafe {
             jit::render_cranelift_run_bb_specialized_with_cfg(
                 &vec![std::ptr::null_mut::<c_void>(); function.blocks.len()],
+                &module,
                 &function,
                 &module_constants,
             )

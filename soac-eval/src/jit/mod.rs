@@ -16,12 +16,13 @@ use pyo3::ffi;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CallArgKeyword,
     CallArgPositional, CellLocation, CodegenBlock, CodegenBlockPyExpr, CounterDef, CounterId,
-    CounterScope, CounterSite, FunctionId, LocalLocation, LocatedName, NameLocation,
-    ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
+    ChildVisitable, CounterScope, CounterSite, FunctionId, HasMeta, LocalLocation, LocatedName,
+    NameLocation, ParamDefaultSource, StorageLayout, Visit, WithMeta,
+    operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -227,6 +228,8 @@ static DP_JIT_PYOBJECT_TO_I64_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer],
     &[SigType::I64],
 );
+static DP_JIT_CALLEE_FUNCTION_ID_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_callee_function_id", &[SigType::Pointer], &[SigType::I64]);
 static DP_JIT_RAISE_DELETED_NAME_ERROR_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_raise_deleted_name_error", &[SigType::Pointer], &[]);
 static DP_JIT_MAKE_CELL_IMPORT: ImportSpec =
@@ -659,6 +662,7 @@ struct JitEmitConsts {
     step_null_args: Vec<ir::Value>,
     ptr_ty: ir::Type,
     i64_ty: ir::Type,
+    vmctx_value: ir::Value,
     callable_value: ir::Value,
     none_const: ir::Value,
     true_const: ir::Value,
@@ -672,6 +676,7 @@ struct JitEmitConsts {
 }
 
 struct JitEmitCtx<'mc> {
+    module: &'mc BlockPyModule<CodegenBlockPyPass>,
     module_constants: &'mc ModuleCodegenConstants,
     module_constant_ptrs: &'mc [*mut ffi::PyObject],
     counter_ptrs: &'mc [*mut u64],
@@ -694,9 +699,11 @@ struct JitEmitCtx<'mc> {
     store_cell_ref: ir::FuncRef,
     py_call_object_ref: ir::FuncRef,
     py_call_with_kw_ref: ir::FuncRef,
+    callee_function_id_ref: ir::FuncRef,
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
     stack_slots: StackSlots,
+    direct_call_code_ptrs: &'mc HashMap<FunctionId, ObjPtr>,
 }
 
 struct CodegenIntrinsicEmitState<'a, 'b, 'mc, 'c, 'd> {
@@ -1547,6 +1554,255 @@ fn emit_owned_bool_from_i32_result(
     emit_owned_bool_from_cond(fb, is_true, ctx)
 }
 
+fn emit_branch_index_i64(
+    fb: &mut FunctionBuilder<'_>,
+    expr: &CodegenBlockPyExpr,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    ctx: &JitEmitCtx<'_>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
+    pyobject_to_i64_ref: ir::FuncRef,
+) -> ir::Value {
+    match expr {
+        CodegenBlockPyExpr::CalleeFunctionId(op) => {
+            let callable_is_borrowed = codegen_expr_is_borrowable(
+                op.value.as_ref(),
+                local_names,
+                &ctx.stack_slots,
+                ctx.storage_layout.as_ref(),
+            );
+            let callable = emit_codegen_expr(
+                fb,
+                op.value.as_ref(),
+                local_names,
+                local_values,
+                ctx,
+                callable_is_borrowed,
+                jit_module,
+                func_imports,
+            );
+            let call_inst = fb.ins().call(ctx.callee_function_id_ref, &[callable]);
+            if !callable_is_borrowed {
+                fb.ins().call(ctx.decref_ref, &[callable]);
+            }
+            fb.inst_results(call_inst)[0]
+        }
+        _ => {
+            let index_obj = emit_codegen_expr(
+                fb,
+                expr,
+                local_names,
+                local_values,
+                ctx,
+                false,
+                jit_module,
+                func_imports,
+            );
+            let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
+            let index_i64 = fb.inst_results(index_i64_inst)[0];
+            fb.ins().call(ctx.decref_ref, &[index_obj]);
+            index_i64
+        }
+    }
+}
+
+fn collect_call_direct_targets(
+    function: &BlockPyFunction<CodegenBlockPyPass>,
+) -> HashSet<FunctionId> {
+    struct CallDirectTargetCollector<'a> {
+        out: &'a mut HashSet<FunctionId>,
+    }
+
+    impl Visit<CodegenBlockPyExpr> for CallDirectTargetCollector<'_> {
+        fn visit_instr(&mut self, expr: &CodegenBlockPyExpr) {
+            if let CodegenBlockPyExpr::CallDirect(call) = expr {
+                self.out.insert(call.function_id);
+            }
+            expr.visit_children(self);
+        }
+    }
+
+    let mut out = HashSet::new();
+    let mut collector = CallDirectTargetCollector { out: &mut out };
+    collector.visit_fn(function);
+    out
+}
+
+fn emit_call_direct_expr(
+    fb: &mut FunctionBuilder<'_>,
+    call: &soac_blockpy::block_py::CallDirect<CodegenBlockPyExpr>,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    ctx: &JitEmitCtx<'_>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
+) -> ir::Value {
+    let Some(target_function) = ctx
+        .module
+        .callable_defs
+        .iter()
+        .find(|function| function.function_id == call.function_id)
+    else {
+        let fallback = CodegenBlockPyExpr::Call(
+            soac_blockpy::block_py::Call::new(
+                (*call.callable).clone(),
+                call.args.clone(),
+                call.keywords.clone(),
+            )
+            .with_meta(call.meta()),
+        );
+        return emit_codegen_expr(
+            fb,
+            &fallback,
+            local_names,
+            local_values,
+            ctx,
+            false,
+            jit_module,
+            func_imports,
+        );
+    };
+
+    let supports_direct_call = call.keywords.is_empty()
+        && call.args.len() <= target_function.params.len()
+        && call
+            .args
+            .iter()
+            .all(|arg| matches!(arg, CallArgPositional::Positional(_)));
+    if !supports_direct_call {
+        let fallback = CodegenBlockPyExpr::Call(
+            soac_blockpy::block_py::Call::new(
+                (*call.callable).clone(),
+                call.args.clone(),
+                call.keywords.clone(),
+            )
+            .with_meta(call.meta()),
+        );
+        return emit_codegen_expr(
+            fb,
+            &fallback,
+            local_names,
+            local_values,
+            ctx,
+            false,
+            jit_module,
+            func_imports,
+        );
+    }
+
+    let callable_is_borrowed = codegen_expr_is_borrowable(
+        call.callable.as_ref(),
+        local_names,
+        &ctx.stack_slots,
+        ctx.storage_layout.as_ref(),
+    );
+    let callable = emit_codegen_expr(
+        fb,
+        call.callable.as_ref(),
+        local_names,
+        local_values,
+        ctx,
+        callable_is_borrowed,
+        jit_module,
+        func_imports,
+    );
+    let target_code_ptr_inst = fb.ins().call(
+        ctx.lookup_direct_code_ptr_ref,
+        &[
+            ctx.consts.vmctx_value,
+            fb.ins().iconst(ctx.consts.i64_ty, call.function_id.packed() as i64),
+        ],
+    );
+    let target_code_ptr = fb.inst_results(target_code_ptr_inst)[0];
+    let null_ptr = fb.ins().iconst(ctx.consts.ptr_ty, 0);
+    let code_ptr_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, target_code_ptr, null_ptr);
+    let code_ptr_ok_block = fb.create_block();
+    fb.append_block_param(code_ptr_ok_block, ctx.consts.ptr_ty);
+    fb.ins().brif(
+        code_ptr_is_null,
+        ctx.consts.step_null_block,
+        &step_null_block_args(ctx),
+        code_ptr_ok_block,
+        &[ir::BlockArg::Value(target_code_ptr)],
+    );
+    fb.switch_to_block(code_ptr_ok_block);
+    let target_code_ptr = fb.block_params(code_ptr_ok_block)[0];
+
+    let mut direct_sig = jit_module.make_signature();
+    direct_sig.params.push(ir::AbiParam::special(
+        ctx.consts.ptr_ty,
+        ir::ArgumentPurpose::VMContext,
+    ));
+    direct_sig.params.push(ir::AbiParam::new(ctx.consts.ptr_ty));
+    for _ in target_function.params.iter() {
+        direct_sig.params.push(ir::AbiParam::new(ctx.consts.ptr_ty));
+    }
+    direct_sig.returns.push(ir::AbiParam::new(ctx.consts.ptr_ty));
+    let direct_sig_ref = fb.import_signature(direct_sig);
+
+    let mut call_args = Vec::with_capacity(target_function.params.len() + 2);
+    call_args.push(ctx.consts.vmctx_value);
+    call_args.push(callable);
+    let mut owned_args = Vec::new();
+    for arg in &call.args {
+        let CallArgPositional::Positional(expr) = arg else {
+            unreachable!("non-positional direct args should have used generic fallback");
+        };
+        let arg_is_borrowed = codegen_expr_is_borrowable(
+            expr,
+            local_names,
+            &ctx.stack_slots,
+            ctx.storage_layout.as_ref(),
+        );
+        let arg_value = emit_codegen_expr(
+            fb,
+            expr,
+            local_names,
+            local_values,
+            ctx,
+            arg_is_borrowed,
+            jit_module,
+            func_imports,
+        );
+        if !arg_is_borrowed {
+            owned_args.push(arg_value);
+        }
+        call_args.push(arg_value);
+    }
+    while call_args.len() < target_function.params.len() + 2 {
+        call_args.push(null_ptr);
+    }
+
+    let direct_call_inst = fb
+        .ins()
+        .call_indirect(direct_sig_ref, target_code_ptr, &call_args);
+    let direct_result = fb.inst_results(direct_call_inst)[0];
+    for arg_value in owned_args {
+        fb.ins().call(ctx.decref_ref, &[arg_value]);
+    }
+    if !callable_is_borrowed {
+        fb.ins().call(ctx.decref_ref, &[callable]);
+    }
+
+    let result_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, direct_result, null_ptr);
+    let result_ok_block = fb.create_block();
+    fb.append_block_param(result_ok_block, ctx.consts.ptr_ty);
+    fb.ins().brif(
+        result_is_null,
+        ctx.consts.step_null_block,
+        &step_null_block_args(ctx),
+        result_ok_block,
+        &[ir::BlockArg::Value(direct_result)],
+    );
+    fb.switch_to_block(result_ok_block);
+    fb.block_params(result_ok_block)[0]
+}
+
 fn emit_codegen_expr(
     fb: &mut FunctionBuilder<'_>,
     expr: &CodegenBlockPyExpr,
@@ -1800,8 +2056,20 @@ fn emit_codegen_expr(
                 }
             }
         }
-        CodegenBlockPyExpr::CallDirect(_) => {
-            panic!("CallDirect lowering is not implemented yet");
+        CodegenBlockPyExpr::CallDirect(call) => {
+            assert!(
+                !borrowed,
+                "codegen direct-call expression must not use borrowed result"
+            );
+            return emit_call_direct_expr(
+                fb,
+                call,
+                local_names,
+                local_values,
+                ctx,
+                jit_module,
+                func_imports,
+            );
         }
         CodegenBlockPyExpr::Call(call) => {
             assert!(
@@ -3107,19 +3375,16 @@ fn emit_codegen_term(
             fb.ins().jump(exec_blocks[else_index], &else_jump_args);
         }
         BlockTerm::BranchTable(branch) => {
-            let index_obj = emit_codegen_expr(
+            let index_i64 = emit_branch_index_i64(
                 fb,
                 &branch.index,
                 local_names,
                 local_values,
                 emit_ctx,
-                false,
                 jit_module,
                 func_imports,
+                pyobject_to_i64_ref,
             );
-            let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
-            let index_i64 = fb.inst_results(index_i64_inst)[0];
-            fb.ins().call(decref_ref, &[index_obj]);
             let index_error = fb.ins().iconst(i64_ty, i64::MIN);
             let is_error = fb
                 .ins()
@@ -3889,6 +4154,7 @@ pub fn run_cranelift_smoke(module: &BlockPyModule<CodegenBlockPyPass>) -> Result
 fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
+    module: &BlockPyModule<CodegenBlockPyPass>,
     function: &BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
     counter_defs: &[CounterDef],
@@ -4106,6 +4372,16 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_SETITEM_IMPORT);
         let pyobject_to_i64_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_TO_I64_IMPORT);
+        let callee_function_id_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_CALLEE_FUNCTION_ID_IMPORT,
+        );
+        let lookup_direct_code_ptr_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_LOOKUP_DIRECT_CODE_PTR_IMPORT,
+        );
         let raise_deleted_name_error_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
@@ -4339,6 +4615,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
+                module,
                 module_constants,
                 module_constant_ptrs,
                 counter_ptrs,
@@ -4352,6 +4629,7 @@ fn build_cranelift_run_bb_specialized_function(
                     step_null_args: fast_step_null_args,
                     ptr_ty,
                     i64_ty,
+                    vmctx_value,
                     callable_value: callable,
                     none_const,
                     true_const,
@@ -4376,6 +4654,8 @@ fn build_cranelift_run_bb_specialized_function(
                 store_cell_ref,
                 py_call_object_ref,
                 py_call_with_kw_ref,
+                callee_function_id_ref,
+                lookup_direct_code_ptr_ref,
                 tuple_new_ref,
                 tuple_set_item_ref,
                 stack_slots: stack_slots.clone(),
@@ -4524,6 +4804,7 @@ fn build_cranelift_run_bb_specialized_function(
 
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
+    module: &BlockPyModule<CodegenBlockPyPass>,
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
 ) -> Result<RenderedSpecializedClif, String> {
@@ -4549,6 +4830,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
+        module,
         function,
         module_constants,
         &[],
@@ -4618,6 +4900,7 @@ fn render_compiled_clif_and_vcode_disasm(
 
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
+    module: &BlockPyModule<CodegenBlockPyPass>,
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
     counter_defs: &[CounterDef],
@@ -4631,6 +4914,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     let built = build_cranelift_run_bb_specialized_function(
         &mut compiled._jit_module,
         blocks,
+        module,
         function,
         module_constants,
         counter_defs,
@@ -4670,6 +4954,10 @@ fn compiled_direct_runner_info(compiled_handle: ObjPtr) -> Result<(*const u8, us
         }) => Ok((code_ptr, param_count)),
         None => Err("invalid compiled handle without entrypoint".to_string()),
     }
+}
+
+pub(crate) fn compiled_direct_code_ptr(compiled_handle: ObjPtr) -> Result<ObjPtr, String> {
+    compiled_direct_runner_info(compiled_handle).map(|(code_ptr, _)| code_ptr as ObjPtr)
 }
 
 pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(

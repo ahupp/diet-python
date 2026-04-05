@@ -340,6 +340,7 @@ mod tests {
                 self.hot0_label,
                 vec![CodegenBlockPyExpr::CallDirect(
                     CallDirect::new(
+                        (*call.func).clone(),
                         hot_targets.most_frequent,
                         call.args.clone(),
                         call.keywords.clone(),
@@ -354,6 +355,7 @@ mod tests {
                 self.hot1_label,
                 vec![CodegenBlockPyExpr::CallDirect(
                     CallDirect::new(
+                        (*call.func).clone(),
                         hot_targets.second_most_frequent,
                         call.args.clone(),
                         call.keywords.clone(),
