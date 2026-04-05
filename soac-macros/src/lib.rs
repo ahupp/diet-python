@@ -97,13 +97,13 @@ impl EnumBroadcastTarget {
         let map_typed_children_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => map.map_expr(Self::#variant_name(node)),
+                Self::#variant_name(node) => map.map_instr(Self::#variant_name(node)),
             }
         });
         let try_map_typed_children_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => map.try_map_expr(Self::#variant_name(node)),
+                Self::#variant_name(node) => map.try_map_instr(Self::#variant_name(node)),
             }
         });
         let walk_arms = variants.iter().map(|variant| {
@@ -186,7 +186,7 @@ impl EnumBroadcastTarget {
                     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
                     where
                         T: Instr,
-                        M: MapExpr<Self, T>,
+                        M: MapInstr<Self, T>,
                     {
                         match self {
                             #( #map_typed_children_arms )*
@@ -196,7 +196,7 @@ impl EnumBroadcastTarget {
                     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
                     where
                         T: Instr,
-                        M: TryMapExpr<Self, T, Error>,
+                        M: TryMapInstr<Self, T, Error>,
                     {
                         match self {
                             #( #try_map_typed_children_arms )*

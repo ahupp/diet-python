@@ -10,7 +10,7 @@ use crate::block_py::{
     CoreBlockPyExprWithYield, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr, ImplicitNoneExpr, Instr,
     Load, MakeFunction, Mappable, ModuleNameGen, ScopeExprNode, StorageLayout, Store,
-    TermBranchTable, TermIf, TermRaise, TryMapExpr, UnaryOp, UnaryOpKind, UnresolvedName,
+    TermBranchTable, TermIf, TermRaise, TryMapInstr, UnaryOp, UnaryOpKind, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -65,7 +65,7 @@ fn try_lower_core_expr_without_yield_with_mapper<M>(
     map: &mut M,
 ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>
 where
-    M: TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
+    M: TryMapInstr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
 {
     match_default!(expr: crate::passes::CoreBlockPyExprWithYield {
         CoreBlockPyExprWithYield::Yield(node) => Err(node.into()),
@@ -74,10 +74,10 @@ where
     })
 }
 
-impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
+impl TryMapInstr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
     for ErrOnYield
 {
-    fn try_map_expr(
+    fn try_map_instr(
         &mut self,
         expr: CoreBlockPyExprWithYield,
     ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
@@ -728,7 +728,7 @@ fn term_yield_site(term: &BlockTerm<CoreBlockPyExprWithYield>) -> Option<YieldSi
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
     let mut mapper = ErrOnYield;
-    mapper.try_map_expr(stmt.clone()).unwrap_or_else(|_| {
+    mapper.try_map_instr(stmt.clone()).unwrap_or_else(|_| {
             panic!(
                 "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
             )
@@ -748,7 +748,7 @@ fn yield_value_expr(value: Option<CoreBlockPyExprWithYield>) -> CoreBlockPyExpr 
     value
         .map(|value| {
             ErrOnYield
-                .try_map_expr(value)
+                .try_map_instr(value)
                 .unwrap_or_else(|_| panic!("yield payload unexpectedly contained nested yield"))
         })
         .unwrap_or_else(core_none)
@@ -1047,7 +1047,7 @@ fn lower_resume_fragment(
                 state,
                 label,
                 lowered_body,
-                Some(ErrOnYield.try_map_expr(value).unwrap_or_else(|_| {
+                Some(ErrOnYield.try_map_instr(value).unwrap_or_else(|_| {
                     panic!("generator lowering expected yield-free final return value")
                 })),
                 params,
@@ -1264,7 +1264,7 @@ fn emit_yield_from_site(
     let stopiter_label = state.fresh_label("yield_from_stopiter");
     let non_stopiter_label = state.fresh_label("yield_from_non_stopiter");
     let value_expr = ErrOnYield
-        .try_map_expr(value)
+        .try_map_instr(value)
         .unwrap_or_else(|_| panic!("yield from payload unexpectedly contained nested yield"));
     let yielded_value_name = state.fresh_temp("yield_from_value");
     let throw_name = state.fresh_temp("yield_from_throw");

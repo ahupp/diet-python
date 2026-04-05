@@ -13,8 +13,8 @@ use crate::block_py::{cfg::relabel_blockpy_blocks_dense, BlockPyModule};
 use crate::block_py::{
     Await, BinOp, BlockPyNameLike, BlockPyPass, Call, CellRef, CellRefForName, CodegenBlockPyExpr,
     ChildVisitable, Del, DelItem, GetAttr, GetItem, HasMeta, Instr, LiteralValue, Load,
-    LocatedName, MakeCell, MakeFunction, MapExpr, Mappable, Meta, SetAttr, SetItem, Store,
-    TryMapExpr, UnaryOp, UnresolvedName, WithMeta, Yield, YieldFrom,
+    LocatedName, MakeCell, MakeFunction, MapInstr, Mappable, Meta, SetAttr, SetItem, Store,
+    TryMapInstr, UnaryOp, UnresolvedName, WithMeta, Yield, YieldFrom,
 };
 use soac_macros::{enum_broadcast, DelegateMatchDefault};
 

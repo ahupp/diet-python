@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_runtime_positional_call_expr_with_meta, map_module, BlockPyModule,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, MapExpr, Mappable,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, MapInstr, Mappable,
     UnresolvedName, WithMeta, YieldFrom,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
@@ -8,8 +8,8 @@ use soac_macros::match_default;
 
 struct CoreAwaitLoweringMap;
 
-impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
-    fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
+impl MapInstr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
+    fn map_instr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
         match_default!(expr: crate::passes::CoreBlockPyExprWithAwaitAndYield {
             CoreBlockPyExprWithAwaitAndYield::Await(node) => {
                 let meta = node.meta();
@@ -18,7 +18,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
                         "await_iter",
                         meta.node_index.clone(),
                         meta.range,
-                        vec![self.map_expr(*node.value)],
+                        vec![self.map_instr(*node.value)],
                     ))
                     .with_meta(meta),
                 )

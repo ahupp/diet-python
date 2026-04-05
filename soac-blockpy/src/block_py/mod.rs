@@ -238,13 +238,13 @@ impl From<RuffExpr> for ast::Expr {
     }
 }
 
-pub trait MapExpr<In: Instr, Out: Instr> {
-    fn map_expr(&mut self, expr: In) -> Out;
+pub trait MapInstr<In: Instr, Out: Instr> {
+    fn map_instr(&mut self, instr: In) -> Out;
     fn map_name(&mut self, name: In::Name) -> Out::Name;
 }
 
-pub trait TryMapExpr<In: Instr, Out: Instr, Error> {
-    fn try_map_expr(&mut self, expr: In) -> Result<Out, Error>;
+pub trait TryMapInstr<In: Instr, Out: Instr, Error> {
+    fn try_map_instr(&mut self, instr: In) -> Result<Out, Error>;
     fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
 }
 
@@ -267,12 +267,12 @@ where
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<E, T>;
+        M: MapInstr<E, T>;
 
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<E, T, Error>;
+        M: TryMapInstr<E, T, Error>;
 
     fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self
     where
@@ -320,13 +320,13 @@ struct IdentityExprMap<'a, I, F> {
     _marker: std::marker::PhantomData<fn(I) -> I>,
 }
 
-impl<I, F> MapExpr<I, I> for IdentityExprMap<'_, I, F>
+impl<I, F> MapInstr<I, I> for IdentityExprMap<'_, I, F>
 where
     I: Instr,
     F: FnMut(I) -> I,
 {
-    fn map_expr(&mut self, expr: I) -> I {
-        (self.f)(expr)
+    fn map_instr(&mut self, instr: I) -> I {
+        (self.f)(instr)
     }
 
     fn map_name(&mut self, name: I::Name) -> I::Name {
@@ -386,17 +386,17 @@ impl Mappable<Expr> for Expr {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<Expr, T>,
+        M: MapInstr<Expr, T>,
     {
-        map.map_expr(self)
+        map.map_instr(self)
     }
 
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<Expr, T, Error>,
+        M: TryMapInstr<Expr, T, Error>,
     {
-        map.try_map_expr(self)
+        map.try_map_instr(self)
     }
 
     fn map_walk(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
@@ -516,17 +516,17 @@ impl Mappable<RuffExpr> for RuffExpr {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<RuffExpr, T>,
+        M: MapInstr<RuffExpr, T>,
     {
-        map.map_expr(self)
+        map.map_instr(self)
     }
 
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<RuffExpr, T, Error>,
+        M: TryMapInstr<RuffExpr, T, Error>,
     {
-        map.try_map_expr(self)
+        map.try_map_instr(self)
     }
 
     fn map_walk(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
@@ -954,14 +954,14 @@ impl<E> CallArgPositional<E> {
         }
     }
 
-    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CallArgPositional<T> {
+    pub fn map_instr<T>(self, f: impl FnOnce(E) -> T) -> CallArgPositional<T> {
         match self {
             Self::Positional(expr) => CallArgPositional::Positional(f(expr)),
             Self::Starred(expr) => CallArgPositional::Starred(f(expr)),
         }
     }
 
-    pub fn try_map_expr<T, Error>(
+    pub fn try_map_instr<T, Error>(
         self,
         f: impl FnOnce(E) -> Result<T, Error>,
     ) -> Result<CallArgPositional<T>, Error> {
@@ -991,7 +991,7 @@ impl<E> CallArgKeyword<E> {
         }
     }
 
-    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CallArgKeyword<T> {
+    pub fn map_instr<T>(self, f: impl FnOnce(E) -> T) -> CallArgKeyword<T> {
         match self {
             Self::Named { arg, value } => CallArgKeyword::Named {
                 arg,
@@ -1001,7 +1001,7 @@ impl<E> CallArgKeyword<E> {
         }
     }
 
-    pub fn try_map_expr<T, Error>(
+    pub fn try_map_instr<T, Error>(
         self,
         f: impl FnOnce(E) -> Result<T, Error>,
     ) -> Result<CallArgKeyword<T>, Error> {
@@ -1284,13 +1284,13 @@ where
 {
     struct IntoInstrMap<IIn, IOut>(std::marker::PhantomData<fn(IIn) -> IOut>);
 
-    impl<IIn, IOut> MapExpr<IIn, IOut> for IntoInstrMap<IIn, IOut>
+    impl<IIn, IOut> MapInstr<IIn, IOut> for IntoInstrMap<IIn, IOut>
     where
         IIn: Instr,
         IOut: Instr + From<IIn>,
     {
-        fn map_expr(&mut self, expr: IIn) -> IOut {
-            expr.into()
+        fn map_instr(&mut self, instr: IIn) -> IOut {
+            instr.into()
         }
 
         fn map_name(&mut self, _name: IIn::Name) -> IOut::Name {

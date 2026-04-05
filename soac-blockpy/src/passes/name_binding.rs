@@ -7,7 +7,7 @@ use crate::block_py::{
     ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, MapExpr, Mappable, NameLocation, SetItem, StorageLayout, Store,
+    MakeCell, MakeFunction, MapInstr, Mappable, NameLocation, SetItem, StorageLayout, Store,
     UnresolvedName, WithMeta, ChildVisitable,
 };
 use crate::passes::ruff_to_blockpy::{
@@ -947,8 +947,8 @@ impl NameBindingMapper<'_> {
                     meta.range,
                 ),
                 captures_expr,
-                self.map_expr(*op.param_defaults),
-                self.map_expr(*op.annotate_fn),
+                self.map_instr(*op.param_defaults),
+                self.map_instr(*op.annotate_fn),
             ],
         )
     }
@@ -994,15 +994,15 @@ fn rewrite_binding_assign_by_name(
     }
 }
 
-impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
-    fn map_expr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
+impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
+    fn map_instr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         if let Some(name) = quiet_delete_marker_target(&expr) {
             return rewrite_quiet_delete_marker(name, expr.meta(), self.scope, self);
         }
         if let Some((name, value, node_index, range)) = unresolved_semantic_store_parts(&expr) {
             return rewrite_binding_assign_by_name(
                 name,
-                self.map_expr(value),
+                self.map_instr(value),
                 self.scope,
                 self,
                 node_index,
@@ -1075,18 +1075,18 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                     match (index, arg) {
                         (2, arg) => mapped_args.push(arg),
                         (_, CallArgPositional::Positional(expr)) => {
-                            mapped_args.push(CallArgPositional::Positional(self.map_expr(expr)))
+                            mapped_args.push(CallArgPositional::Positional(self.map_instr(expr)))
                         }
                         (_, CallArgPositional::Starred(expr)) => {
-                            mapped_args.push(CallArgPositional::Starred(self.map_expr(expr)))
+                            mapped_args.push(CallArgPositional::Starred(self.map_instr(expr)))
                         }
                     }
                 }
-                Call::new(self.map_expr(*call.func), mapped_args, call.keywords)
+                Call::new(self.map_instr(*call.func), mapped_args, call.keywords)
                     .with_meta(meta)
                     .into()
             }
-            other => other.map_walk(&mut |child| self.map_expr(child)).into(),
+            other => other.map_walk(&mut |child| self.map_instr(child)).into(),
         }
     }
 
@@ -2031,8 +2031,8 @@ impl NameLocator<'_> {
     }
 }
 
-impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> {
-    fn map_expr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
+impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> {
+    fn map_instr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
         match expr {
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
             CoreBlockPyExpr::Load(op) => {
@@ -2053,7 +2053,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
                 } else {
                     self.mark_raw_cell_store_name(name)
                 };
-                let value = self.map_expr(*op.value);
+                let value = self.map_instr(*op.value);
                 Store::new(name, Box::new(value)).with_meta(meta).into()
             }
             CoreBlockPyExpr::Del(op) => {

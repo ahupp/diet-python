@@ -1,6 +1,6 @@
 use crate::block_py::{
     instr_any, map_term, Await, Block, BlockPyFunction, BlockPyNameLike, BlockTerm,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapInstr,
     Mappable, Store, UnresolvedName, WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
@@ -165,10 +165,10 @@ struct HoistSuspendsInCoreTerm<'a, 'b> {
     cleanup: &'b mut Vec<ast::ExprName>,
 }
 
-impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithAwaitAndYield>
+impl MapInstr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithAwaitAndYield>
     for HoistSuspendsInCoreTerm<'_, '_>
 {
-    fn map_expr(
+    fn map_instr(
         &mut self,
         expr: CoreBlockPyExprWithAwaitAndYield,
     ) -> CoreBlockPyExprWithAwaitAndYield {
@@ -336,10 +336,10 @@ struct HoistYieldFreeAtomsInCoreTerm<'a, 'b> {
     cleanup: &'b mut Vec<ast::ExprName>,
 }
 
-impl MapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithYield>
+impl MapInstr<CoreBlockPyExprWithYield, CoreBlockPyExprWithYield>
     for HoistYieldFreeAtomsInCoreTerm<'_, '_>
 {
-    fn map_expr(&mut self, expr: CoreBlockPyExprWithYield) -> CoreBlockPyExprWithYield {
+    fn map_instr(&mut self, expr: CoreBlockPyExprWithYield) -> CoreBlockPyExprWithYield {
         hoist_core_expr_without_await_to_atom(expr, self.out, self.cleanup)
     }
 

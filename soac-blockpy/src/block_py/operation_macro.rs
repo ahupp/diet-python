@@ -91,7 +91,7 @@ macro_rules! define_operation {
             fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
-                M: MapExpr<$expr_ty, T>,
+                M: MapInstr<$expr_ty, T>,
             {
                 #[allow(unused_variables)]
                 let _ = &map;
@@ -104,7 +104,7 @@ macro_rules! define_operation {
             ) -> Result<Self::Mapped<T>, Error>
             where
                 T: Instr,
-                M: TryMapExpr<$expr_ty, T, Error>,
+                M: TryMapInstr<$expr_ty, T, Error>,
             {
                 #[allow(unused_variables)]
                 let _ = &map;
@@ -195,7 +195,7 @@ macro_rules! define_operation {
             fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
-                M: MapExpr<E, T>,
+                M: MapInstr<E, T>,
             {
                 let _ = &map;
                 self
@@ -207,7 +207,7 @@ macro_rules! define_operation {
             ) -> Result<Self::Mapped<T>, Error>
             where
                 T: Instr,
-                M: TryMapExpr<E, T, Error>,
+                M: TryMapInstr<E, T, Error>,
             {
                 let _ = &map;
                 Ok(self)
@@ -423,14 +423,14 @@ macro_rules! define_operation {
         define_operation!(
             @build_mapped
             [$($mapped_ctor)+]
-            [$($out)* $field: Box::new($map.map_expr(*$self.$field)),]
+            [$($out)* $field: Box::new($map.map_instr(*$self.$field)),]
             $self,
             $map,
             $($rest)*
         )
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>) => {
-        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.map_expr(*$self.$field)), }
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.map_instr(*$self.$field)), }
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(
@@ -452,14 +452,14 @@ macro_rules! define_operation {
         define_operation!(
             @build_try_mapped
             [$($mapped_ctor)+]
-            [$($out)* $field: Box::new($map.try_map_expr(*$self.$field)?),]
+            [$($out)* $field: Box::new($map.try_map_instr(*$self.$field)?),]
             $self,
             $map,
             $($rest)*
         )
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>) => {
-        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.try_map_expr(*$self.$field)?), })
+        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.try_map_instr(*$self.$field)?), })
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(

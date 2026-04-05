@@ -1,7 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
     BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, ChildVisitable, FunctionId,
-    FunctionKind, HasMeta, Instr, InstrName, MapExpr, Mappable, Meta, TryMapExpr, WithMeta,
+    FunctionKind, HasMeta, Instr, InstrName, MapInstr, Mappable, Meta, TryMapInstr, WithMeta,
 };
 use std::fmt;
 
@@ -168,20 +168,20 @@ impl<E: Instr> Mappable<E> for Call<E> {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<E, T>,
+        M: MapInstr<E, T>,
     {
         Call {
             _meta: self._meta,
-            func: Box::new(map.map_expr(*self.func)),
+            func: Box::new(map.map_instr(*self.func)),
             args: self
                 .args
                 .into_iter()
-                .map(|arg| arg.map_expr(|expr| map.map_expr(expr)))
+                .map(|arg| arg.map_instr(|expr| map.map_instr(expr)))
                 .collect(),
             keywords: self
                 .keywords
                 .into_iter()
-                .map(|keyword| keyword.map_expr(|expr| map.map_expr(expr)))
+                .map(|keyword| keyword.map_instr(|expr| map.map_instr(expr)))
                 .collect(),
         }
     }
@@ -189,20 +189,20 @@ impl<E: Instr> Mappable<E> for Call<E> {
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<E, T, Error>,
+        M: TryMapInstr<E, T, Error>,
     {
         Ok(Call {
             _meta: self._meta,
-            func: Box::new(map.try_map_expr(*self.func)?),
+            func: Box::new(map.try_map_instr(*self.func)?),
             args: self
                 .args
                 .into_iter()
-                .map(|arg| arg.try_map_expr(|expr| map.try_map_expr(expr)))
+                .map(|arg| arg.try_map_instr(|expr| map.try_map_instr(expr)))
                 .collect::<Result<Vec<_>, _>>()?,
             keywords: self
                 .keywords
                 .into_iter()
-                .map(|keyword| keyword.try_map_expr(|expr| map.try_map_expr(expr)))
+                .map(|keyword| keyword.try_map_instr(|expr| map.try_map_instr(expr)))
                 .collect::<Result<Vec<_>, _>>()?,
         })
     }
@@ -302,7 +302,7 @@ impl<I: Instr> Mappable<I> for Load<I> {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<I, T>,
+        M: MapInstr<I, T>,
     {
         Load {
             _meta: self._meta,
@@ -313,7 +313,7 @@ impl<I: Instr> Mappable<I> for Load<I> {
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<I, T, Error>,
+        M: TryMapInstr<I, T, Error>,
     {
         Ok(Load {
             _meta: self._meta,
@@ -392,24 +392,24 @@ impl<I: Instr> Mappable<I> for Store<I> {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<I, T>,
+        M: MapInstr<I, T>,
     {
         Store {
             _meta: self._meta,
             name: map.map_name(self.name),
-            value: Box::new(map.map_expr(*self.value)),
+            value: Box::new(map.map_instr(*self.value)),
         }
     }
 
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<I, T, Error>,
+        M: TryMapInstr<I, T, Error>,
     {
         Ok(Store {
             _meta: self._meta,
             name: map.try_map_name(self.name)?,
-            value: Box::new(map.try_map_expr(*self.value)?),
+            value: Box::new(map.try_map_instr(*self.value)?),
         })
     }
 }
@@ -476,7 +476,7 @@ impl<I: Instr> Mappable<I> for Del<I> {
     fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        M: MapExpr<I, T>,
+        M: MapInstr<I, T>,
     {
         Del {
             _meta: self._meta,
@@ -488,7 +488,7 @@ impl<I: Instr> Mappable<I> for Del<I> {
     fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        M: TryMapExpr<I, T, Error>,
+        M: TryMapInstr<I, T, Error>,
     {
         Ok(Del {
             _meta: self._meta,

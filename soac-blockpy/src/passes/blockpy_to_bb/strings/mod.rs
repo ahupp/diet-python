@@ -1,6 +1,6 @@
 use crate::block_py::{
     map_fn, BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, Mappable,
-    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
+    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapInstr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 
@@ -40,8 +40,8 @@ impl CodegenExprNormalizer {
     }
 }
 
-impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormalizer {
-    fn map_expr(&mut self, expr: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
+impl MapInstr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormalizer {
+    fn map_instr(&mut self, expr: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
         match expr {
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();

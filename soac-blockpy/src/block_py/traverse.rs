@@ -7,7 +7,7 @@ pub(crate) fn map_module<PIn, POut, M>(
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    M: MapExpr<PIn::Expr, POut::Expr>,
+    M: MapInstr<PIn::Expr, POut::Expr>,
 {
     BlockPyModule {
         module_name_gen: module.module_name_gen,
@@ -26,7 +26,7 @@ pub(crate) fn map_fn<PIn, POut, M>(map: &mut M, func: BlockPyFunction<PIn>) -> B
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    M: MapExpr<PIn::Expr, POut::Expr>,
+    M: MapInstr<PIn::Expr, POut::Expr>,
 {
     BlockPyFunction {
         function_id: func.function_id,
@@ -49,14 +49,14 @@ pub(crate) fn map_block<In, Out, M>(map: &mut M, block: Block<In>) -> Block<Out>
 where
     In: Instr,
     Out: Instr,
-    M: MapExpr<In, Out>,
+    M: MapInstr<In, Out>,
 {
     Block {
         label: block.label,
         body: block
             .body
             .into_iter()
-            .map(|stmt| map.map_expr(stmt))
+            .map(|stmt| map.map_instr(stmt))
             .collect(),
         term: map_term(map, block.term),
         params: block.params,
@@ -68,7 +68,7 @@ pub(crate) fn map_term<In, Out, M>(map: &mut M, term: BlockTerm<In>) -> BlockTer
 where
     In: Instr,
     Out: Instr,
-    M: MapExpr<In, Out>,
+    M: MapInstr<In, Out>,
 {
     match term {
         BlockTerm::Jump(edge) => BlockTerm::Jump(BlockEdge {
@@ -76,19 +76,19 @@ where
             args: edge.args,
         }),
         BlockTerm::IfTerm(if_term) => BlockTerm::IfTerm(TermIf {
-            test: map.map_expr(if_term.test),
+            test: map.map_instr(if_term.test),
             then_label: if_term.then_label,
             else_label: if_term.else_label,
         }),
         BlockTerm::BranchTable(branch) => BlockTerm::BranchTable(TermBranchTable {
-            index: map.map_expr(branch.index),
+            index: map.map_instr(branch.index),
             targets: branch.targets,
             default_label: branch.default_label,
         }),
         BlockTerm::Raise(raise_stmt) => BlockTerm::Raise(TermRaise {
-            exc: raise_stmt.exc.map(|exc| map.map_expr(exc)),
+            exc: raise_stmt.exc.map(|exc| map.map_instr(exc)),
         }),
-        BlockTerm::Return(value) => BlockTerm::Return(map.map_expr(value)),
+        BlockTerm::Return(value) => BlockTerm::Return(map.map_instr(value)),
     }
 }
 
@@ -99,7 +99,7 @@ pub(crate) fn try_map_fn<PIn, POut, Error, M>(
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    M: TryMapExpr<PIn::Expr, POut::Expr, Error>,
+    M: TryMapInstr<PIn::Expr, POut::Expr, Error>,
 {
     Ok(BlockPyFunction {
         function_id: func.function_id,
@@ -125,14 +125,14 @@ pub(crate) fn try_map_block<In, Out, Error, M>(
 where
     In: Instr,
     Out: Instr,
-    M: TryMapExpr<In, Out, Error>,
+    M: TryMapInstr<In, Out, Error>,
 {
     Ok(Block {
         label: block.label,
         body: block
             .body
             .into_iter()
-            .map(|stmt| map.try_map_expr(stmt))
+            .map(|stmt| map.try_map_instr(stmt))
             .collect::<Result<_, _>>()?,
         term: try_map_term(map, block.term)?,
         params: block.params,
@@ -147,7 +147,7 @@ pub(crate) fn try_map_term<In, Out, Error, M>(
 where
     In: Instr,
     Out: Instr,
-    M: TryMapExpr<In, Out, Error>,
+    M: TryMapInstr<In, Out, Error>,
 {
     match term {
         BlockTerm::Jump(edge) => Ok(BlockTerm::Jump(BlockEdge {
@@ -155,22 +155,21 @@ where
             args: edge.args,
         })),
         BlockTerm::IfTerm(if_term) => Ok(BlockTerm::IfTerm(TermIf {
-            test: map.try_map_expr(if_term.test)?,
+            test: map.try_map_instr(if_term.test)?,
             then_label: if_term.then_label,
             else_label: if_term.else_label,
         })),
         BlockTerm::BranchTable(branch) => Ok(BlockTerm::BranchTable(TermBranchTable {
-            index: map.try_map_expr(branch.index)?,
+            index: map.try_map_instr(branch.index)?,
             targets: branch.targets,
             default_label: branch.default_label,
         })),
         BlockTerm::Raise(raise_stmt) => Ok(BlockTerm::Raise(TermRaise {
             exc: raise_stmt
                 .exc
-                .map(|exc| map.try_map_expr(exc))
+                .map(|exc| map.try_map_instr(exc))
                 .transpose()?,
         })),
-        BlockTerm::Return(value) => Ok(BlockTerm::Return(map.try_map_expr(value)?)),
+        BlockTerm::Return(value) => Ok(BlockTerm::Return(map.try_map_instr(value)?)),
     }
 }
-

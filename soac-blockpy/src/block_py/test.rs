@@ -66,7 +66,7 @@ fn call_and_keyword_arg_expr_helpers_preserve_shape() {
         CallArgPositional::Positional(Expr::Name(name)) if name.id.as_str() == "y"
     ));
 
-    let starred = CallArgPositional::Starred(py_expr!("z")).map_expr(|expr| {
+    let starred = CallArgPositional::Starred(py_expr!("z")).map_instr(|expr| {
         let Expr::Name(name) = expr else {
             panic!("expected name expr");
         };
@@ -78,7 +78,7 @@ fn call_and_keyword_arg_expr_helpers_preserve_shape() {
         arg: ast::Identifier::new("value", ruff_text_size::TextRange::default()),
         value: py_expr!("a"),
     }
-    .try_map_expr(|expr| -> Result<Expr, &'static str> {
+    .try_map_instr(|expr| -> Result<Expr, &'static str> {
         let Expr::Name(name) = expr else {
             return Err("expected name expr");
         };
