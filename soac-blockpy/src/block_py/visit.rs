@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 pub(crate) fn instr_any<I, F>(instr: &I, mut predicate: F) -> bool
