@@ -202,7 +202,10 @@ changes:
       - transformed/JIT: 221,433 loops/s
       - stock CPython: 892,476 loops/s
       - transformed is about 0.248x stock, so stock is about 4.03x faster
-
+  - fix read through globals cache, near 100% hitrate
+      - JIT transformed: 245,183 loops/s
+      - Stock CPython: 954,347 loops/s
+      - So without counters enabled, the JIT is about 25.7% of stock throughput, or 3.89x slower.
 
 # Design
 
