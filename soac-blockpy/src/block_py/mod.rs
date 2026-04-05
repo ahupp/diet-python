@@ -270,6 +270,20 @@ where
         T: Instr,
         M: TryMapInstr<E, T, Error>;
 
+    fn map_same_children<M>(self, map: &mut M) -> Self::Mapped<E>
+    where
+        M: MapInstr<E, E>,
+    {
+        self.map_children(map)
+    }
+
+    fn try_map_same_children<Error, M>(self, map: &mut M) -> Result<Self::Mapped<E>, Error>
+    where
+        M: TryMapInstr<E, E, Error>,
+    {
+        self.try_map_children(map)
+    }
+
 }
 
 pub trait Instr: Clone + fmt::Debug + Sized {

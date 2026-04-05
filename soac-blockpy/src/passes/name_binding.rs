@@ -15,6 +15,7 @@ use crate::passes::ruff_to_blockpy::{
 };
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast::{self as ast};
+use soac_macros::match_default;
 use std::collections::{HashMap, HashSet};
 
 fn is_internal_symbol(name: &str) -> bool {
@@ -1012,7 +1013,16 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
         if let Some((target, meta)) = unresolved_semantic_delete_target(&expr) {
             return rewrite_binding_delete(target, meta, self.scope, self);
         }
-        match expr {
+        if let Some(target_name) = cell_ref_marker_target(&expr) {
+            let meta = expr.meta();
+            return rewrite_cell_ref_expr(
+                target_name.as_str(),
+                self.scope,
+                meta.node_index,
+                meta.range,
+            );
+        }
+        match_default!(expr: crate::passes::CoreBlockPyExpr {
             CoreBlockPyExpr::Load(op) => {
                 let meta = op.meta();
                 if op.name.is_runtime_name() {
@@ -1034,19 +1044,8 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                 } else {
                     rewrite_name_load(op.name.name(), meta, self.scope, self)
                 }
-            }
+            },
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            expr if cell_ref_marker_target(&expr).is_some() => {
-                let target_name = cell_ref_marker_target(&expr)
-                    .expect("cell-ref marker target should exist after guard");
-                let meta = expr.meta();
-                rewrite_cell_ref_expr(
-                    target_name.as_str(),
-                    self.scope,
-                    meta.node_index,
-                    meta.range,
-                )
-            }
             CoreBlockPyExpr::MakeFunction(op) => self.materialize_make_function_expr(op.meta(), op),
             CoreBlockPyExpr::Call(call)
                 if call.args.is_empty()
@@ -1061,7 +1060,7 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
             {
                 let meta = call.meta();
                 globals_expr(meta.node_index, meta.range)
-            }
+            },
             CoreBlockPyExpr::Call(call)
                 if call.keywords.is_empty()
                     && call.args.len() == 3
@@ -1085,21 +1084,10 @@ impl MapInstr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                 Call::new(self.map_instr(*call.func), mapped_args, call.keywords)
                     .with_meta(meta)
                     .into()
-            }
-            CoreBlockPyExpr::BinOp(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::UnaryOp(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::Call(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::GetAttr(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::SetAttr(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::GetItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::SetItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::DelItem(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::Store(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::Del(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::MakeCell(node) => node.map_children(self).into(),
-            CoreBlockPyExpr::CellRefForName(node) => node.into(),
-            CoreBlockPyExpr::CellRef(node) => node.into(),
-        }
+            },
+            CoreBlockPyExpr::Call(call) => call.map_same_children(self).into(),
+            rest => rest.map_same_children(self).into(),
+        })
     }
 
     fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {

@@ -67,7 +67,7 @@ pub enum CoreBlockPyExprWithYield {
     YieldFrom(YieldFrom<Self>),
 }
 
-#[derive(Clone, derive_more::From)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
 #[enum_broadcast(HasMeta, WithMeta, ChildVisitable, Mappable, Debug)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),

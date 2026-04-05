@@ -100,6 +100,18 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => map.try_map_instr(Self::#variant_name(node)),
             }
         });
+        let map_same_children_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.map_same_children(map).into(),
+            }
+        });
+        let try_map_same_children_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => Ok(node.try_map_same_children(map)?.into()),
+            }
+        });
         let walk_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
@@ -194,6 +206,24 @@ impl EnumBroadcastTarget {
                     {
                         match self {
                             #( #try_map_children_arms )*
+                        }
+                    }
+
+                    fn map_same_children<M>(self, map: &mut M) -> Self::Mapped<Self>
+                    where
+                        M: MapInstr<Self, Self>,
+                    {
+                        match self {
+                            #( #map_same_children_arms )*
+                        }
+                    }
+
+                    fn try_map_same_children<Error, M>(self, map: &mut M) -> Result<Self::Mapped<Self>, Error>
+                    where
+                        M: TryMapInstr<Self, Self, Error>,
+                    {
+                        match self {
+                            #( #try_map_same_children_arms )*
                         }
                     }
                 }
