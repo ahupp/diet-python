@@ -39,8 +39,8 @@ pub use visit::{Visit, VisitMut};
 pub use map::{MapInstr, TryMapInstr};
 #[allow(unused_imports)]
 pub(crate) use map::{
-    IdentityInstrMap, MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction,
-    TryMapModule, TryMapTerm,
+    MapBlock, MapFunction, MapModule, MapTerm, TryMapBlock, TryMapFunction, TryMapModule,
+    TryMapTerm,
 };
 #[allow(unused_imports)]
 pub(crate) use visit::{
@@ -271,10 +271,7 @@ where
     where
         Self: Mappable<E, Mapped<E> = Self>,
     {
-        self.map_typed_children(&mut IdentityInstrMap {
-            f,
-            _marker: std::marker::PhantomData,
-        })
+        self.map_typed_children(f)
     }
 
     fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>

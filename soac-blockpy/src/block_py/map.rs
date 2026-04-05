@@ -10,22 +10,31 @@ pub trait TryMapInstr<In: Instr, Out: Instr, Error> {
     fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
 }
 
-pub(crate) struct IdentityInstrMap<'a, I, F> {
-    pub(crate) f: &'a mut F,
-    pub(crate) _marker: std::marker::PhantomData<fn(I) -> I>,
-}
-
-impl<I, F> MapInstr<I, I> for IdentityInstrMap<'_, I, F>
+impl<I, F> MapInstr<I, I> for F
 where
     I: Instr,
     F: FnMut(I) -> I,
 {
     fn map_instr(&mut self, instr: I) -> I {
-        (self.f)(instr)
+        self(instr)
     }
 
     fn map_name(&mut self, name: I::Name) -> I::Name {
         name
+    }
+}
+
+impl<I, Error, F> TryMapInstr<I, I, Error> for F
+where
+    I: Instr,
+    F: FnMut(I) -> Result<I, Error>,
+{
+    fn try_map_instr(&mut self, instr: I) -> Result<I, Error> {
+        self(instr)
+    }
+
+    fn try_map_name(&mut self, name: I::Name) -> Result<I::Name, Error> {
+        Ok(name)
     }
 }
 
